@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2006-2020 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -31,7 +31,7 @@
 
 #define ACC_LIBC_NAKED 1
 /*#define ACC_OS_FREESTANDING 1*/
-#include "miniacc.h"
+#include "util/miniacc.h"
 
 #define UPX_LZMA_COMPAT 1
 
@@ -94,8 +94,6 @@ ACC_COMPILE_TIME_ASSERT_HEADER(sizeof(SizeT) >= 4)
 #if (ACC_ARCH_I086)
 #  define char  char __huge
 #elif (ACC_CC_WATCOMC)
-#else
-#define CLzmaDecoderState   const CLzmaDecoderState
 #endif
 int LzmaDecodeProperties(CLzmaProperties *, const unsigned char *, int);
 int LzmaDecode(CLzmaDecoderState *, const unsigned char *, SizeT, SizeT *, unsigned char *, SizeT, SizeT *);

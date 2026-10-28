@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -51,6 +51,11 @@
 #undef  jnextb0n
 #undef  jnextb1y
 #undef  jnextb1n
+
+/* "closed" coding (subroutine call to get1) saves space: 2 instr per jnextb*
+   and 1 instr per getnextb, in contrast to "open" coding of nrv2d and nrv2e;
+   but costs pipeline breaks.  Savings is (2*4*3 + 1*4*4) == 40 bytes.
+*/
 /* jump on next bit, with branch prediction: y==>likely; n==>unlikely
    cr0 is set by the cmpl ["compare logical"==>unsigned]:
     lt  next bit is 0
@@ -67,11 +72,11 @@
 #define getnextb(reg) call get1; adde. reg,reg,reg
 
 get2:
-        adde  bits,bits,bits  // shift in CArry from 'addc' below
+        adde  bits,bits,bits  // shift in Carry (== 1) from 'addc' below
         sldi bits,bits,32-1  // left justify 33-bit result
 get1:
-        cmpld bits,hibit  // cr0  for   jnextb
-        addc  bits,bits,bits  // CArry for getnextb
+        cmpld bits,hibit  // cr0  for   jnextb; NEQ because (1==Cin) at 'adde'
+        addc  bits,bits,bits  // Carry for getnextb
         bnelr+ cr0  // return if reload not needed; likely 31/32
 
                 // fetch 4 bytes unaligned and LITTLE ENDIAN
@@ -103,7 +108,7 @@ offmore_n2b:
         getnextb(off)
         jnextb0n offmore_n2b
 
-        addic. off,off,-3  // CArry set [and ignored], but no 'addi.'
+        addic. off,off,-3  // Carry set [and ignored], but no 'addi.'
         li len,0
         blt- offprev_n2b
         lbzu t1,1(src)
@@ -121,7 +126,7 @@ lenmore_n2b:
         getnextb(len)
         jnextb0n lenmore_n2b
 gotlen_n2b:
-        subfic t1,disp,(~0)+(-0xd00)  // want CArry only
+        subfic t1,disp,(~0)+(-0xd00)  // want Carry only
         adde len,len,off  // len += off + (disp < -0xd00);
 
 copy:

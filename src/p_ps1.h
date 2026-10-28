@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2002-2020 Jens Medoch
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) Jens Medoch
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,50 +29,47 @@
    <jssg@users.sourceforge.net>
  */
 
-
-#ifndef __UPX_P_PS1_H
-#define __UPX_P_PS1_H 1
-
+#pragma once
 
 /*************************************************************************
 // ps1/exe
 **************************************************************************/
 
-class PackPs1 : public Packer
-{
+class PackPs1 final : public Packer {
     typedef Packer super;
+
 public:
-    PackPs1(InputFile *f);
-    virtual int getVersion() const { return 13; }
-    virtual int getFormat() const { return UPX_F_PS1_EXE; }
-    virtual const char *getName() const { return "ps1/exe"; }
-    virtual const char *getFullName(const options_t *) const { return "mipsel.r3000-ps1"; }
-    virtual const int *getCompressionMethods(int method, int level) const;
-    virtual const int *getFilters() const;
+    explicit PackPs1(InputFile *f);
+    virtual int getVersion() const override { return 13; }
+    virtual int getFormat() const override { return UPX_F_PS1_EXE; }
+    virtual const char *getName() const override { return "ps1/exe"; }
+    virtual const char *getFullName(const Options *) const override { return "mipsel.r3000-ps1"; }
+    virtual const int *getCompressionMethods(int method, int level) const override;
+    virtual const int *getFilters() const override;
 
-    virtual void pack(OutputFile *fo);
-    virtual void unpack(OutputFile *fo);
+    virtual void pack(OutputFile *fo) override;
+    virtual void unpack(OutputFile *fo) override;
 
-    virtual bool canPack();
-    virtual int canUnpack();
+    virtual tribool canPack() override;
+    virtual tribool canUnpack() override;
 
 protected:
-    virtual void putBkupHeader(const unsigned char *src, unsigned char *dst, unsigned *len);
-    virtual bool getBkupHeader(unsigned char *src, unsigned char * dst);
-    virtual bool readBkupHeader();
-    virtual void buildLoader(const Filter *ft);
-    virtual bool findBssSection();
-    virtual Linker* newLinker() const;
+    void putBkupHeader(const byte *src, byte *dst, unsigned *len);
+    bool getBkupHeader(byte *src, byte *dst);
+    bool readBkupHeader();
+    virtual void buildLoader(const Filter *ft) override;
+    bool findBssSection();
+    virtual Linker *newLinker() const override;
 
-    virtual int readFileHeader();
-    virtual bool checkFileHeader();
+    int readFileHeader();
+    bool checkFileHeader();
 
-    __packed_struct(ps1_exe_t)
+    struct alignas(1) ps1_exe_t {
         // ident string
-        char id[8];
-        // is NULL
+        byte id[8];
+        // is nullptr
         LE32 text;
-        // is NULL
+        // is nullptr
         LE32 data;
         // initial program counter
         LE32 epc;
@@ -87,47 +84,44 @@ protected:
         // saved regs on execution
         LE32 sp, fp, gp0, ra, k0;
         // origin Jap/USA/Europe
-        char origin[60];
+        byte origin[60];
         // backup of the original header (epc - is_len)
         // id & the upx header ...
-    __packed_struct_end()
+    };
 
     // for unpack
-    __packed_struct(ps1_exe_hb_t)
+    struct alignas(1) ps1_exe_hb_t {
         LE32 ih_bkup[10];
         // plus checksum for the backup
         LE32 ih_csum;
-    __packed_struct_end()
+    };
 
-    __packed_struct(ps1_exe_chb_t)
-        unsigned char id;
-        unsigned char len;
-        LE16          ih_csum;
-        unsigned char ih_bkup;
-    __packed_struct_end()
+    struct alignas(1) ps1_exe_chb_t {
+        byte id;
+        byte len;
+        LE16 ih_csum;
+        byte ih_bkup;
+    };
 
-    __packed_struct(bss_nfo)
-        LE16    hi1, op1, lo1, op2;
-        LE16    hi2, op3, lo2, op4;
-    __packed_struct_end()
+    struct alignas(1) bss_nfo {
+        LE16 hi1, op1, lo1, op2;
+        LE16 hi2, op3, lo2, op4;
+    };
 
-    ps1_exe_t ih, oh;
-    ps1_exe_hb_t bh;
+    ps1_exe_t ih = {}, oh = {};
+    ps1_exe_hb_t bh = {};
 
-    bool isCon;
-    bool is32Bit;
-    bool buildPart2;
-    bool foundBss;
-    unsigned ram_size;
-    unsigned sa_cnt, overlap;
-    unsigned sz_lunc, sz_lcpr;
-    unsigned pad_code;
-    unsigned bss_start, bss_end;
-    // filesize-PS_HDR_SIZE
-    unsigned fdata_size;
+    bool isCon = false;
+    bool is32Bit = false;
+    bool buildPart2 = false;
+    bool foundBss = false;
+    unsigned ram_size = 0;
+    unsigned sa_cnt = 0, overlap = 0;
+    unsigned sz_lunc = 0, sz_lcpr = 0;
+    unsigned pad_code = 0;
+    unsigned bss_start = 0, bss_end = 0;
+    unsigned fdata_size = 0; // file_size - PS_HDR_SIZE
+    MemBuffer mb_cprLoader;
 };
-
-
-#endif /* already included */
 
 /* vim:set ts=4 sw=4 et: */

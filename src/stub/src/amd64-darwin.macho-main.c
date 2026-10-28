@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,7 +63,7 @@
 // and then followed by a comma to ignore the return value.
 // The only complication is that percent and backslash
 // must be doubled in the format string, because the format
-// string is processd twice: once at compile-time by 'asm'
+// string is processed twice: once at compile-time by 'asm'
 // to produce the assembled value, and once at runtime to use it.
 #if defined(__powerpc__)  //{
 #define DPRINTF(fmt, args...) ({ \
@@ -133,6 +133,14 @@ xread(Extent *x, void *buf, size_t count)
     x->size -= count;
 }
 
+static void
+xpeek(Extent *x, void *buf, size_t count)
+{
+    DPRINTF("xpeek buf=%%p  count=%%x  ", buf, count);
+    xread(x, buf, count);
+    x->size += count;
+    x->buf  -= count;
+}
 
 /*************************************************************************
 // util
@@ -177,7 +185,7 @@ struct b_info { // 12-byte header before each compressed block
     unsigned char b_method;  // compression algorithm
     unsigned char b_ftid;  // filter id
     unsigned char b_cto8;  // filter parameter
-    unsigned char b_unused;
+    unsigned char b_extra;
 };
 
 typedef void f_unfilter(
@@ -242,6 +250,7 @@ ERR_LAB
             xi->size -= h.sz_cpr;
         }
         else { // copy literal block
+            xi->size += sizeof(h);  // xread(xi, &h, sizeof(h)) was a peek
             xread(xi, xo->buf, h.sz_cpr);
         }
         xo->buf  += h.sz_unc;
@@ -466,6 +475,18 @@ extern void bswap(void *, unsigned);
 
 typedef size_t Addr;  // this source file is used by 32-bit and 64-bit machines
 
+void my_bkpt(void const *foo, ...)
+{
+    (void)foo;
+#if defined(__x86_64__)  //{
+    __asm__(".byte 0xcc");
+#elif  defined(__aarch64__)  //}{
+     __asm__("brk #0");
+#elif  defined(__arm__)  //}{
+     __asm__(".long 0xe7f001f0"); // "bkpt" ==> "udf #16"
+#endif  //}
+}
+
 // Find convex hull of PT_LOAD (the minimal interval which covers all PT_LOAD),
 // and mmap that much, to be sure that a kernel using exec-shield-randomize
 // won't place the first piece in a way that leaves no room for the rest.
@@ -486,8 +507,8 @@ xfind_pages(
     for (j=0; j < ncmds; ++j,
         (sc = (Mach_segment_command const *)((sc->cmdsize>>2) + (unsigned const *)sc))
     ) if (LC_SEGMENT==sc->cmd) {
-        DPRINTF("  #%%d  cmd=%%x  cmdsize=%%x  vmaddr=%%p  vmsize==%%p  lo=%%p  mflags=%%x\\n",
-            j, sc->cmd, sc->cmdsize, sc->vmaddr, sc->vmsize, lo, mflags);
+        DPRINTF("  #%%d  cmd=%%x  cmdsize=%%x  vmaddr=%%p  vmsize==%%p  filesize=%%p  lo=%%p  mflags=%%x\\n",
+            j, sc->cmd, sc->cmdsize, sc->vmaddr, sc->vmsize, sc->filesize, lo, mflags);
         if (sc->vmsize  // theoretically occupies address space
         &&  !(sc->vmaddr==0 && (MAP_FIXED & mflags))  // but ignore PAGEZERO when MAP_FIXED
         ) {
@@ -539,120 +560,143 @@ do_xmap(
         fdi, mhdr, (mhdrpp ? *mhdrpp : 0), xi, (xi? xi->size: 0), (xi? xi->buf: 0), f_unf);
 
     unsigned *rv = 0;
+    Extent xi_orig = {0, 0};
     Mach_segment_command *sc = (Mach_segment_command *)(1+ mhdr);
     Addr const reloc = xfind_pages(mhdr, sc, mhdr->ncmds, 0);
     DPRINTF("do_xmap reloc=%%p\\n", reloc);
     unsigned j;
+    if (xi) { // remember "Beginning of tape"
+        xi_orig = *xi;
+    }
     for ( j=0; j < mhdr->ncmds; ++j,
         (sc = (Mach_segment_command *)((sc->cmdsize>>2) + (unsigned *)sc))
     ) {
-        DPRINTF("  #%%d  cmd=%%x  cmdsize=%%x  vmsize=%%x\\n",
-                j, sc->cmd, sc->cmdsize, sc->vmsize);
-        if (LC_SEGMENT==sc->cmd && !sc->vmsize) {
-            // Typical __DWARF info segment for 'rust'
+        DPRINTF("  #%%d  sc=%%x  cmd=%%x  cmdsize=%%x  vmsize=%%x\\n",
+                j, sc, sc->cmd, sc->cmdsize, sc->vmsize);
+        if (LC_SEGMENT==sc->cmd) {
             struct b_info h;
-            xread(xi, (unsigned char *)&h, sizeof(h));
-            DPRINTF("    0==.vmsize; skipping %%x\\n", h.sz_cpr);
-            xi->buf += h.sz_cpr;
-        }
-        if (LC_SEGMENT==sc->cmd && sc->vmsize) {
-            Extent xo;
-            size_t mlen = xo.size = sc->filesize;
-                          xo.buf  = (void *)(reloc + sc->vmaddr);
-            Addr  addr = (Addr)xo.buf;
-            Addr haddr = sc->vmsize + addr;
-            size_t frag = addr &~ PAGE_MASK;
-            addr -= frag;
-            mlen += frag;
-
-            DPRINTF("    mlen=%%p  frag=%%p  addr=%%p\\n", mlen, frag, addr);
-            if (0!=mlen) {
-                size_t const mlen3 = mlen
-    #if defined(__x86_64__)  //{
-                    // Decompressor can overrun the destination by 3 bytes.  [x86 only]
-                    + (xi ? 3 : 0)
-    #endif  //}
-                    ;
-                unsigned const prot = VM_PROT_READ | VM_PROT_WRITE;
-                // MAP_FIXED: xfind_pages() reserved them, so use them!
-                unsigned const flags = MAP_FIXED | MAP_PRIVATE |
-                                ((xi || 0==sc->filesize) ? MAP_ANON    : 0);
-                int const fdm = ((xi || 0==sc->filesize) ? MAP_ANON_FD : fdi);
-                off_t_upx_stub const offset = sc->fileoff + fat_offset;
-
-                DPRINTF("mmap  addr=%%p  len=%%p  prot=%%x  flags=%%x  fd=%%d  off=%%p  reloc=%%p\\n",
-                    addr, mlen3, prot, flags, fdm, offset, reloc);
-                {
-                    Addr maddr = (Addr)mmap((void *)addr, mlen3, prot, flags, fdm, offset);
-                    DPRINTF("maddr=%%p\\n", maddr);
-                    if (maddr != addr) {
-                        err_exit(8);
+            if (xi && sc->filesize) { // Find the correct compressed block.
+                xpeek(xi, (unsigned char *)&h, sizeof(h));
+                DPRINTF("  h.b_extra=%%d  j=%%d\n", h.b_extra, j);
+                if (h.b_extra != j) { // not the next one
+                    *xi = xi_orig;  // rewind
+                    for (;;) {
+                        xpeek(xi, (unsigned char *)&h, sizeof(h));
+                        if (h.b_extra == j) {
+                            break;
+                        }
+                        xi->size -= sizeof(h) + h.sz_cpr;
+                        xi->buf  += sizeof(h) + h.sz_cpr;
                     }
-                    addr = maddr;
-                }
-                if (!*mhdrpp) { // MH_DYLINKER
-                    *mhdrpp = (Mach_header*)addr;
                 }
             }
-            if (xi && 0!=sc->filesize) {
-                if (0==sc->fileoff /*&& 0!=mhdrpp*/) {
-                    *mhdrpp = (Mach_header *)(void *)addr;
+            if (!sc->vmsize) { // not mapped, such as __DWARF info for 'go'
+                if (xi) {
+                    DPRINTF("    0==.vmsize; skipping %%x\\n", h.sz_cpr);
+                    xi->size -= sizeof(h) + h.sz_cpr;
+                    xi->buf  += sizeof(h) + h.sz_cpr;
                 }
-                unpackExtent(xi, &xo, f_exp, f_unf);
+                continue;  // redundant for clarity
             }
-            DPRINTF("xi=%%p  mlen=%%p  fileoff=%%p  nsects=%%d\\n",
-                xi, mlen, sc->fileoff, sc->nsects);
-            if (xi && mlen && !sc->fileoff && sc->nsects) {
-                // main target __TEXT segment at beginning of file with sections (__text)
-                // Use upto 2 words of header padding for the escape hatch.
-                // fold.S could do this easier, except PROT_WRITE is missing then.
-                union {
-                    unsigned char  *p0;
-                    unsigned short *p1;
-                    unsigned int   *p2;
-                    unsigned long  *p3;
-                } u;
-                u.p0 = (unsigned char *)addr;
-                Mach_segment_command *segp = (Mach_segment_command *)((((char *)sc - (char *)mhdr)>>2) + u.p2);
-                Mach_section_command *const secp = (Mach_section_command *)(1+ segp);
-    #if defined(__aarch64__)  //{
-                unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
-                hatch[0] = 0xd4000001;  // svc #0  // syscall
-                hatch[1] = 0xd65f03c0;  // ret
-    #elif defined(__arm__)  //}{
-                unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
-                hatch[0] = 0xef000000;  // svc 0x0  // syscall
-                hatch[1] = 0xe12fff1e;  // bx lr
-    #elif defined(__x86_64__)  //}{
-                unsigned *hatch= -1+ (secp->offset>>2) + u.p2;
-                hatch[0] = 0xc3050f90;  // nop; syscall; ret
-    #endif  //}
-                DPRINTF("hatch=%%p  secp=%%p  segp=%%p  mhdr=%%p\\n", hatch, secp, segp, addr);
-                rv = hatch;
-            }
-            /*bzero(addr, frag);*/  // fragment at lo end
-            frag = (-mlen) &~ PAGE_MASK;  // distance to next page boundary
-            bzero((void *)(mlen+addr), frag);  // fragment at hi end
-            if (0!=mlen && 0!=mprotect((void *)addr, mlen, sc->initprot)) {
-                err_exit(10);
-    ERR_LAB
-            }
-            addr += mlen + frag;  /* page boundary on hi end */
-            if (
-    #if SIMULATE_ON_LINUX_EABI4  /*{*/
-                0!=addr &&
-    #endif  /*}*/
-                            addr < haddr) { // need pages for .bss
-                if (0!=addr && addr != (Addr)mmap((void *)addr, haddr - addr, sc->initprot,
-                        MAP_FIXED | MAP_PRIVATE | MAP_ANON, MAP_ANON_FD, 0 ) ) {
-                    err_exit(9);
+            else { // finally, some meat!
+                Extent xo;
+                size_t mlen = xo.size = sc->filesize;
+                              xo.buf  = (void *)(reloc + sc->vmaddr);
+                Addr  addr = (Addr)xo.buf;
+                Addr haddr = sc->vmsize + addr;
+                size_t frag = addr &~ PAGE_MASK;
+                addr -= frag;
+                mlen += frag;
+
+                DPRINTF("    mlen=%%p  frag=%%p  addr=%%p\\n", mlen, frag, addr);
+                if (0!=mlen) {
+                    size_t const mlen3 = mlen
+        #if defined(__x86_64__)  //{
+                        // Decompressor can overrun the destination by 3 bytes.  [x86 only]
+                        + (xi ? 3 : 0)
+        #endif  //}
+                        ;
+                    unsigned const prot = VM_PROT_READ | VM_PROT_WRITE;
+                    // MAP_FIXED: xfind_pages() reserved them, so use them!
+                    unsigned const flags = MAP_FIXED | MAP_PRIVATE |
+                                    ((xi || 0==sc->filesize) ? MAP_ANON    : 0);
+                    int const fdm = ((xi || 0==sc->filesize) ? MAP_ANON_FD : fdi);
+                    off_t_upx_stub const offset = sc->fileoff + fat_offset;
+
+                    DPRINTF("mmap  addr=%%p  len=%%p  prot=%%x  flags=%%x  fd=%%d  off=%%p  reloc=%%p\\n",
+                        addr, mlen3, prot, flags, fdm, offset, reloc);
+                    {
+                        Addr maddr = (Addr)mmap((void *)addr, mlen3, prot, flags, fdm, offset);
+                        DPRINTF("maddr=%%p\\n", maddr);
+                        if (maddr != addr) {
+                            err_exit(8);
+                        }
+                        addr = maddr;
+                    }
+                    if (!*mhdrpp) { // MH_DYLINKER
+                        *mhdrpp = (Mach_header*)addr;
+                    }
                 }
-            }
-            else if (xi) { // cleanup if decompressor overrun crosses page boundary
-                mlen = ~PAGE_MASK & (3+ mlen);
-                if (mlen<=3) { // page fragment was overrun buffer only
-                    DPRINTF("munmap  %%x  %%x\\n", addr, mlen);
-                    munmap((char *)addr, mlen);
+                if (xi && 0!=sc->filesize) {
+                    if (0==sc->fileoff /*&& 0!=mhdrpp*/) {
+                        *mhdrpp = (Mach_header *)(void *)addr;
+                    }
+                    unpackExtent(xi, &xo, f_exp, f_unf);
+                }
+                DPRINTF("xi=%%p  mlen=%%p  fileoff=%%p  nsects=%%d\\n",
+                    xi, mlen, sc->fileoff, sc->nsects);
+                if (xi && mlen && !sc->fileoff && sc->nsects) {
+                    // main target __TEXT segment at beginning of file with sections (__text)
+                    // Use upto 2 words of header padding for the escape hatch.
+                    // fold.S could do this easier, except PROT_WRITE is missing then.
+                    union {
+                        unsigned char  *p0;
+                        unsigned short *p1;
+                        unsigned int   *p2;
+                        unsigned long  *p3;
+                    } u;
+                    u.p0 = (unsigned char *)addr;
+                    Mach_segment_command *segp = (Mach_segment_command *)((((char *)sc - (char *)mhdr)>>2) + u.p2);
+                    Mach_section_command *const secp = (Mach_section_command *)(1+ segp);
+        #if defined(__aarch64__)  //{
+                    unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
+                    hatch[0] = 0xd4000001;  // svc #0  // syscall
+                    hatch[1] = 0xd65f03c0;  // ret
+        #elif defined(__arm__)  //}{
+                    unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
+                    hatch[0] = 0xef000000;  // svc 0x0  // syscall
+                    hatch[1] = 0xe12fff1e;  // bx lr
+        #elif defined(__x86_64__)  //}{
+                    unsigned *hatch= -1+ (secp->offset>>2) + u.p2;
+                    hatch[0] = 0xc3050f90;  // nop; syscall; ret
+        #endif  //}
+                    DPRINTF("hatch=%%p  secp=%%p  segp=%%p  mhdr=%%p\\n", hatch, secp, segp, addr);
+                    rv = hatch;
+                }
+                /*bzero(addr, frag);*/  // fragment at lo end
+                frag = (-mlen) &~ PAGE_MASK;  // distance to next page boundary
+                bzero((void *)(mlen+addr), frag);  // fragment at hi end
+                if (0!=mlen && 0!=mprotect((void *)addr, mlen, sc->initprot)) {
+                    err_exit(10);
+        ERR_LAB
+                }
+                addr += mlen + frag;  /* page boundary on hi end */
+                if (
+        #if SIMULATE_ON_LINUX_EABI4  /*{*/
+                    0!=addr &&
+        #endif  /*}*/
+                                addr < haddr) { // need pages for .bss
+                    if (0!=addr && addr != (Addr)mmap((void *)addr, haddr - addr, sc->initprot,
+                            MAP_FIXED | MAP_PRIVATE | MAP_ANON, MAP_ANON_FD, 0 ) ) {
+                        err_exit(9);
+                    }
+                }
+                else if (xi) { // cleanup if decompressor overrun crosses page boundary
+                    mlen = ~PAGE_MASK & (3+ mlen);
+                    if (mlen<=3) { // page fragment was overrun buffer only
+                        DPRINTF("munmap  %%x  %%x\\n", addr, mlen);
+                        munmap((char *)addr, mlen);
+                    }
                 }
             }
         }
@@ -680,7 +724,6 @@ do_xmap(
     DPRINTF("do_xmap= %%p\\n", rv);
     return rv;
 }
-
 
 /*************************************************************************
 // upx_main - called by our unfolded entry code
@@ -733,6 +776,7 @@ upx_main(
             err_exit(18);
         }
 fat:
+        DPRINTF("fat_offset= %%p\\n", fat_offset);
         if ((ssize_t)sz_mhdr!=pread(fdi, (void *)mhdr, sz_mhdr, fat_offset)) {
 ERR_LAB
             err_exit(19);

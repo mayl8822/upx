@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -41,7 +41,7 @@
 // it at an address different from it load address:  there must be no
 // static data, and no string constants.
 
-#define MAX_ELF_HDR 512  // Elf32_Ehdr + n*Elf32_Phdr must fit in this
+#include "../../MAX_ELF_HDR.h"
 
 
 /*************************************************************************
@@ -95,9 +95,6 @@ do_brk(void *addr)
 {
     return brk(addr);
 }
-
-extern char *mmap(void *addr, size_t len,
-    int prot, int flags, int fd, off_t offset);
 
 /*************************************************************************
 // UPX & NRV stuff
@@ -161,6 +158,7 @@ ERR_LAB
             xi->size -= h.sz_cpr;
         }
         else { // copy literal block
+            xi->size += sizeof(h);  // xread(xi, &h, sizeof(h)) was a peek
             xread(xi, xo->buf, h.sz_cpr);
         }
         xo->buf  += h.sz_unc;
@@ -380,7 +378,7 @@ void *pti_main(
     Elf32_auxv_t *const av,
     unsigned const sz_compressed,
     f_expand *(*get_fexp(int)),
-    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR+OVERHEAD]
+    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR_32+OVERHEAD]
     struct Extent xo,  // {sz_unc, ehdr}    for ELF headers
     struct Extent xi,  // {sz_cpr, &b_info} for ELF headers
     f_unfilter *(*get_funf(int))
@@ -415,7 +413,7 @@ void *pti_main(
         if (0 > fdi) {
             err_exit(18);
         }
-        if (MAX_ELF_HDR!=read(fdi, (void *)ehdr, MAX_ELF_HDR)) {
+        if (MAX_ELF_HDR_32!=read(fdi, (void *)ehdr, MAX_ELF_HDR_32)) {
 ERR_LAB
             err_exit(19);
         }

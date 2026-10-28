@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,84 +25,122 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
 #include "conf.h"
 #include "packer.h"
 #include "linker.h"
-//#include "filter.h"
-
 
 /*************************************************************************
 // compression method util
 **************************************************************************/
 
-bool Packer::isValidCompressionMethod(int method)
-{
-    if (M_IS_LZMA(method)) {
-#if !(WITH_LZMA)
-        assert(0 && "Internal error - LZMA not compiled in");
-#else
-        return true;
-#endif
+/*static*/ bool Packer::isValidFormat(int format) noexcept {
+    if (!((format >= 1 && format <= UPX_F_CPM86_CMD) ||
+          (format >= 129 && format <= UPX_F_DYLIB_PPC64))) {
+        return false;
     }
-    return (method >= M_NRV2B_LE32 && method <= M_LZMA);
+    switch (format) {
+    case 6:   // UPX_F_VXD_LE               6 // NOT IMPLEMENTED
+    case 11:  // UPX_F_WIN16_NE            11 // NOT IMPLEMENTED
+    case 13:  // UPX_F_LINUX_SEP_i386      13 // NOT IMPLEMENTED
+    case 17:  // UPX_F_ELKS_8086           17 // NOT IMPLEMENTED
+    case 38:  // UPX_F_MACH_PPC64LE        38 // DOES NOT EXIST
+    case 41:  // UPX_F_DYLIB_PPC64LE       41 // DOES NOT EXIST
+    case 130: // UPX_F_SOLARIS_SPARC      130 // NOT IMPLEMENTED
+        return false;
+    }
+    return true;
 }
 
+/*static*/ bool Packer::isValidCompressionMethod(int m) noexcept {
+    return M_IS_LZMA(m) || M_IS_NRV2B(m) || M_IS_NRV2D(m) || M_IS_NRV2E(m);
+}
 
-const int *Packer::getDefaultCompressionMethods_8(int method, int level, int small) const
-{
-#define M_LZMA_003      (M_LZMA | 0x00300)
-#define M_LZMA_407      (M_LZMA | 0x40700)
-    static const int m_all[]   = { M_NRV2B_8, M_NRV2D_8, M_NRV2E_8, M_LZMA, M_ULTRA_BRUTE, M_LZMA_003, M_LZMA_407, M_END };
-    //static const int m_cl1b[]  = { M_CL1B_8, M_END };
-    static const int m_lzma[]  = { M_LZMA, M_END };
-    static const int m_nrv2b[] = { M_NRV2B_8, M_END };
-    static const int m_nrv2d[] = { M_NRV2D_8, M_END };
-    static const int m_nrv2e[] = { M_NRV2E_8, M_END };
+const int *Packer::getDefaultCompressionMethods_8(int method, int level, int small) const {
+#define M_LZMA_003 (M_LZMA | 0x00300)
+#define M_LZMA_407 (M_LZMA | 0x40700)
+    static const int m_all[] = {M_NRV2B_8,     M_NRV2D_8,  M_NRV2E_8,  M_LZMA,
+                                M_ULTRA_BRUTE, M_LZMA_003, M_LZMA_407, M_END};
+    // static const int m_cl1b[]  = { M_CL1B_8, M_END };
+    static const int m_lzma[] = {M_LZMA, M_END};
+    static const int m_nrv2b[] = {M_NRV2B_8, M_END};
+    static const int m_nrv2d[] = {M_NRV2D_8, M_END};
+    static const int m_nrv2e[] = {M_NRV2E_8, M_END};
 
-    if (method == M_ALL)    return m_all;
-    //if (M_IS_CL1B(method))  return m_cl1b;
-    if (M_IS_LZMA(method))  return m_lzma;
-    if (M_IS_NRV2B(method)) return m_nrv2b;
-    if (M_IS_NRV2D(method)) return m_nrv2d;
-    if (M_IS_NRV2E(method)) return m_nrv2e;
+    if (method == M_ALL)
+        return m_all;
+    // if (M_IS_CL1B(method))  return m_cl1b;
+    if (M_IS_LZMA(method))
+        return m_lzma;
+    if (M_IS_NRV2B(method))
+        return m_nrv2b;
+    if (M_IS_NRV2D(method))
+        return m_nrv2d;
+    if (M_IS_NRV2E(method))
+        return m_nrv2e;
     if (small < 0)
-        small = file_size <= 512*1024;
+        small = file_size <= 512 * 1024;
     if (level == 1 || small)
         return m_nrv2b;
     return m_nrv2e;
 }
 
+const int *Packer::getDefaultCompressionMethods_le32(int method, int level, int small) const {
+    static const int m_all[] = {M_NRV2B_LE32,  M_NRV2D_LE32, M_NRV2E_LE32, M_LZMA,
+                                M_ULTRA_BRUTE, M_LZMA_003,   M_LZMA_407,   M_END};
+    // static const int m_cl1b[]  = { M_CL1B_LE32, M_END };
+    static const int m_lzma[] = {M_LZMA, M_END};
+    static const int m_nrv2b[] = {M_NRV2B_LE32, M_END};
+    static const int m_nrv2d[] = {M_NRV2D_LE32, M_END};
+    static const int m_nrv2e[] = {M_NRV2E_LE32, M_END};
 
-const int *Packer::getDefaultCompressionMethods_le32(int method, int level, int small) const
-{
-    static const int m_all[]   = { M_NRV2B_LE32, M_NRV2D_LE32, M_NRV2E_LE32, M_LZMA, M_ULTRA_BRUTE, M_LZMA_003, M_LZMA_407, M_END };
-    //static const int m_cl1b[]  = { M_CL1B_LE32, M_END };
-    static const int m_lzma[]  = { M_LZMA, M_END };
-    static const int m_nrv2b[] = { M_NRV2B_LE32, M_END };
-    static const int m_nrv2d[] = { M_NRV2D_LE32, M_END };
-    static const int m_nrv2e[] = { M_NRV2E_LE32, M_END };
-
-    if (method == M_ALL)    return m_all;
-    //if (M_IS_CL1B(method))  return m_cl1b;
-    if (M_IS_LZMA(method))  return m_lzma;
-    if (M_IS_NRV2B(method)) return m_nrv2b;
-    if (M_IS_NRV2D(method)) return m_nrv2d;
-    if (M_IS_NRV2E(method)) return m_nrv2e;
+    if (method == M_ALL)
+        return m_all;
+    // if (M_IS_CL1B(method))  return m_cl1b;
+    if (M_IS_LZMA(method))
+        return m_lzma;
+    if (M_IS_NRV2B(method))
+        return m_nrv2b;
+    if (M_IS_NRV2D(method))
+        return m_nrv2d;
+    if (M_IS_NRV2E(method))
+        return m_nrv2e;
     if (small < 0)
-        small = file_size <= 512*1024;
+        small = file_size <= 512 * 1024;
     if (level == 1 || small)
         return m_nrv2b;
     return m_nrv2e;
 }
-
 
 /*************************************************************************
 // loader util
 **************************************************************************/
 
-const char *Packer::getDecompressorSections() const
-{
+static bool callsManyTimes(int format) {
+    // clang-format off
+    return
+        UPX_F_LINUX_ELF_i386   ==format
+    ||  UPX_F_LINUX_ELFI_i386  ==format
+    ||  UPX_F_LINUX_ELF64_AMD64==format
+    ||  UPX_F_LINUX_ELF32_ARM  ==format
+    ||  UPX_F_LINUX_ELF32_PPC32   ==format
+    ||  UPX_F_LINUX_ELF64_PPC64LE ==format
+    ||  UPX_F_LINUX_ELF32_ARMEB==format
+    ||  UPX_F_BSD_ELF_i386     ==format
+    ||  UPX_F_VMLINUX_ARM      ==format
+    ||  UPX_F_VMLINUX_ARMEB    ==format
+    ||  UPX_F_VMLINUX_PPC32    ==format
+    ||  UPX_F_VMLINUX_PPC64LE  ==format
+    ||  UPX_F_VMLINUZ_ARM      ==format
+    ||  UPX_F_MACH_PPC32       ==format
+    ||  UPX_F_MACH_PPC64       ==format
+    ||  UPX_F_MACH_i386        ==format
+    ||  UPX_F_DYLIB_i386       ==format
+    ;
+    // clang-format on
+}
+
+const char *Packer::getDecompressorSections() const {
+    // clang-format off
     static const char nrv2b_le32_small[] =
         "N2BSMA10,N2BDEC10,N2BSMA20,N2BDEC20,N2BSMA30,"
         "N2BDEC30,N2BSMA40,N2BSMA50,N2BDEC50,N2BSMA60,"
@@ -195,100 +233,64 @@ const char *Packer::getDecompressorSections() const
         "LZMA_ELF00,LZMA_DEC10,LZMA_DEC30";
     static const char lzma_elf_fast[] =
         "LZMA_ELF00,LZMA_DEC20,LZMA_DEC30";
+    // clang-format on
 
-    if (ph.method == M_NRV2B_LE32)
+    const unsigned method = ph_forced_method(ph.method);
+    if (method == M_NRV2B_LE32)
         return opt->small ? nrv2b_le32_small : nrv2b_le32_fast;
-    if (ph.method == M_NRV2D_LE32)
+    if (method == M_NRV2D_LE32)
         return opt->small ? nrv2d_le32_small : nrv2d_le32_fast;
-    if (ph.method == M_NRV2E_LE32)
+    if (method == M_NRV2E_LE32)
         return opt->small ? nrv2e_le32_small : nrv2e_le32_fast;
-//    if (ph.method == M_CL1B_LE32)
-//        return opt->small ? cl1b_le32_small  : cl1b_le32_fast;
-    if (M_IS_LZMA(ph.method)) {
-        if (UPX_F_LINUX_ELF_i386   ==ph.format
-        ||  UPX_F_LINUX_ELFI_i386  ==ph.format
-        ||  UPX_F_LINUX_ELF64_AMD  ==ph.format
-        ||  UPX_F_LINUX_ELF32_ARMEL==ph.format
-        ||  UPX_F_LINUX_ELFPPC32   ==ph.format
-        ||  UPX_F_LINUX_ELFPPC64LE ==ph.format
-        ||  UPX_F_LINUX_ELF32_ARMEB==ph.format
-        ||  UPX_F_BSD_ELF_i386     ==ph.format
-        ||  UPX_F_VMLINUZ_ARMEL    ==ph.format
-        ||  UPX_F_VMLINUX_ARMEL    ==ph.format
-        ||  UPX_F_VMLINUX_ARMEB    ==ph.format
-        ||  UPX_F_VMLINUX_PPC32    ==ph.format
-        ||  UPX_F_VMLINUX_PPC64LE  ==ph.format
-        ||  UPX_F_MACH_PPC32       ==ph.format
-        ||  UPX_F_MACH_PPC64LE     ==ph.format
-        ||  UPX_F_MACH_i386        ==ph.format
-        ||  UPX_F_DYLIB_i386       ==ph.format
-    ) {
-            return opt->small ? lzma_elf_small  : lzma_elf_fast;
+    //    if (method == M_CL1B_LE32)
+    //        return opt->small ? cl1b_le32_small  : cl1b_le32_fast;
+    if (M_IS_LZMA(method)) {
+        if (callsManyTimes(ph.format)) {
+            return opt->small ? lzma_elf_small : lzma_elf_fast;
         }
-        return opt->small ? lzma_small  : lzma_fast;
+        return opt->small ? lzma_small : lzma_fast;
     }
     throwInternalError("bad decompressor");
-    return NULL;
+    return nullptr;
 }
 
-
-unsigned Packer::getDecompressorWrkmemSize() const
-{
+unsigned Packer::getDecompressorWrkmemSize() const {
     unsigned size = 0;
-    if (M_IS_LZMA(ph.method))
-    {
+    if (M_IS_LZMA(ph.method)) {
         const lzma_compress_result_t *res = &ph.compress_result.result_lzma;
         // FIXME - this is for i386 only
         size = 8 + 4 + ALIGN_UP(2 * res->num_probs, 4u);
         size = ALIGN_UP(size, 16u);
     }
-    assert((int)size >= 0);
+    assert((int) size >= 0);
     return size;
 }
 
-void Packer::defineDecompressorSymbols()
-{
-    if (UPX_F_LINUX_ELF_i386   ==ph.format
-    ||  UPX_F_LINUX_ELFI_i386  ==ph.format
-    ||  UPX_F_LINUX_ELF64_AMD  ==ph.format
-    ||  UPX_F_LINUX_ELF32_ARMEL==ph.format
-    ||  UPX_F_LINUX_ELFPPC32   ==ph.format
-    ||  UPX_F_LINUX_ELFPPC64LE ==ph.format
-    ||  UPX_F_LINUX_ELF32_ARMEB==ph.format
-    ||  UPX_F_BSD_ELF_i386     ==ph.format
-    ||  UPX_F_VMLINUZ_ARMEL    ==ph.format
-    ||  UPX_F_VMLINUX_ARMEL    ==ph.format
-    ||  UPX_F_VMLINUX_ARMEB    ==ph.format
-    ||  UPX_F_VMLINUX_PPC32    ==ph.format
-    ||  UPX_F_VMLINUX_PPC64LE  ==ph.format
-    ||  UPX_F_MACH_PPC32       ==ph.format
-    ||  UPX_F_MACH_PPC64LE     ==ph.format
-    ||  UPX_F_MACH_i386        ==ph.format
-    ||  UPX_F_DYLIB_i386       ==ph.format
-    ) {
+void Packer::defineDecompressorSymbols() {
+    if (callsManyTimes(ph.format)) {
         // ELF calls the decompressor many times; the parameters change!
         return;
     }
-    if (M_IS_LZMA(ph.method))
-    {
+    if (M_IS_LZMA(ph.method)) {
         const lzma_compress_result_t *res = &ph.compress_result.result_lzma;
         upx_uint32_t properties = // lc, lp, pb, dummy
-            (res->lit_context_bits << 0) |
-            (res->lit_pos_bits << 8) |
-            (res->pos_bits << 16);
-        if (linker->bele->isBE()) // big endian - bswap32
-            acc_swab32s(&properties);
+            (res->lit_context_bits << 0) | (res->lit_pos_bits << 8) | (res->pos_bits << 16);
+        if (bele->isBE()) // big endian - bswap32
+            properties = bswap32(properties);
 
         linker->defineSymbol("lzma_properties", properties);
         // len - 2 because of properties
-        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
-        linker->defineSymbol("lzma_u_len", ph.u_len);
+        if (linker->findSymbol("lzma_c_len", false)) {
+            linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        }
+        if (linker->findSymbol("lzma_u_len", false)) {
+            linker->defineSymbol("lzma_u_len", ph.u_len);
+        }
         unsigned stack = getDecompressorWrkmemSize();
         linker->defineSymbol("lzma_stack_adjust", 0u - stack);
 
-        if (ph.format == UPX_F_DOS_EXE)
-        {
-            linker->defineSymbol("lzma_properties_hi", properties >> 16);   // pb
+        if (ph.format == UPX_F_DOS_EXE) {
+            linker->defineSymbol("lzma_properties_hi", properties >> 16); // pb
             linker->defineSymbol("lzma_c_len_hi", (ph.c_len - 2) >> 16);
             linker->defineSymbol("lzma_u_len_hi", ph.u_len >> 16);
             linker->defineSymbol("lzma_u_len_segment", (ph.u_len & 0xf0000) >> 4);

@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -41,7 +41,7 @@
 // it at an address different from it load address:  there must be no
 // static data, and no string constants.
 
-#define MAX_ELF_HDR 512  // Elf32_Ehdr + n*Elf32_Phdr must fit in this
+#include "../../MAX_ELF_HDR.h"
 
 
 /*************************************************************************
@@ -92,9 +92,6 @@ do_brk(void *addr)
 {
     return brk(addr);
 }
-
-extern char *mmap(void *addr, size_t len,
-    int prot, int flags, int fd, off_t offset);
 
 /*************************************************************************
 // UPX & NRV stuff
@@ -148,6 +145,7 @@ ERR_LAB
             xi->size -= h.sz_cpr;
         }
         else { // copy literal block
+            xi->size += sizeof(h);  // xread(xi, &h, sizeof(h)) was a peek
             xread(xi, xo->buf, h.sz_cpr);
         }
         xo->buf  += h.sz_unc;
@@ -289,7 +287,7 @@ getexec(char const *const fname, Elf32_Ehdr *const ehdr, Elf32_auxv_t *const av)
         err_exit(18);
 ERR_LAB
     }
-    if (MAX_ELF_HDR!=read(fdi, (void *)ehdr, MAX_ELF_HDR)) {
+    if (MAX_ELF_HDR_32!=read(fdi, (void *)ehdr, MAX_ELF_HDR_32)) {
         err_exit(19);
     }
     return do_xmap(fdi, ehdr, av);
@@ -306,7 +304,7 @@ void *upx_main(
     Elf32_auxv_t *const av,
     unsigned const junk,
     f_expand *const f_decompress,
-    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR]
+    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR_32]
     struct Extent xi,
     struct Extent xo
 ) __asm__("upx_main");
@@ -315,7 +313,7 @@ void *upx_main(
     Elf32_auxv_t *const av,
     unsigned const junk,
     f_expand *const f_decompress,
-    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR]
+    Elf32_Ehdr *const ehdr,  // temp char[MAX_ELF_HDR_32]
     struct Extent xi,
     struct Extent xo
 )

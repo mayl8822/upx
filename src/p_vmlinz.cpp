@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -26,17 +26,21 @@
  */
 
 
+#define ALLOW_INT_PLUS_MEMBUFFER 1
 #include "conf.h"
 
+#if (WITH_ZLIB)
 #include "p_elf.h"
 #include "file.h"
 #include "filter.h"
 #include "packer.h"
 #include "p_vmlinz.h"
+#define WANT_EHDR_ENUM 1
+#include "p_elf_enum.h"
 #include "linker.h"
-#include <zlib.h>
+#include <zlib/zlib.h>
 
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/i386-linux.kernel.vmlinuz.h"
 
 static const unsigned stack_offset_during_uncompression = 0x9000;
@@ -56,7 +60,7 @@ PackVmlinuzI386::PackVmlinuzI386(InputFile *f) :
     , filter_len(0)
 {
     bele = &N_BELE_RTP::le_policy;
-    COMPILE_TIME_ASSERT(sizeof(boot_sect_t) == 0x250);
+    COMPILE_TIME_ASSERT(sizeof(boot_sect_t) == 0x250)
 }
 
 
@@ -92,7 +96,7 @@ int PackVmlinuzI386::getStrategy(Filter &/*ft*/)
 }
 
 
-bool PackVmlinuzI386::canPack()
+tribool PackVmlinuzI386::canPack()
 {
     return readFileHeader() == getFormat();
 }
@@ -116,7 +120,7 @@ int PackVmlinuzI386::readFileHeader()
         return 0;
 
     int format = UPX_F_VMLINUZ_i386;
-    unsigned sys_size = ALIGN_UP((unsigned) file_size, 16u) - setup_size;
+    unsigned sys_size = ALIGN_UP((unsigned) file_size_u, 16u) - setup_size;
 
     const unsigned char *p = (const unsigned char *) &h + 0x1e3;
 
@@ -159,8 +163,11 @@ int PackVmlinuzI386::decompressKernel()
     fi->readx(obuf, file_size);
 
     {
-    const upx_byte *base = NULL;
+    const upx_byte *base = nullptr;
     unsigned relocated = 0;
+    // keep the raw-pointer signature scans below inside obuf
+    const upx_byte *const ibeg = &obuf[0];
+    const upx_byte *const iend = ibeg + file_size;
 
     // See startup_32: in linux/arch/i386/boot/compressed/head.S
     const upx_byte *p;
@@ -171,7 +178,7 @@ int PackVmlinuzI386::decompressKernel()
         cpa_0 = h.kernel_alignment;
         cpa_1 = 0u - cpa_0;
     } else
-    for ((p = &obuf[setup_size]), (j= 0); j < 0x200; ++j, ++p) {
+    for ((p = &obuf[setup_size]), (j= 0); j < 0x200 && p + 0x11 <= iend; ++j, ++p) {
         if (0==memcmp("\x89\xeb\x81\xc3", p, 4)
         &&  0==memcmp("\x81\xe3",      8+ p, 2)) {
             // movl %ebp,%ebx
@@ -182,7 +189,7 @@ int PackVmlinuzI386::decompressKernel()
             break;
         }
     }
-    for ((p = &obuf[setup_size]), (j= 0); j < 0x200; ++j, ++p) {
+    for ((p = &obuf[setup_size]), (j= 0); j < 0x200 && p + 0x11 <= iend; ++j, ++p) {
         if (0==memcmp("\x8d\x83",    p, 2)  // leal d32(%ebx),%eax
         &&  0==memcmp("\xff\xe0", 6+ p, 2)  // jmp *%eax
         ) {
@@ -220,7 +227,7 @@ int PackVmlinuzI386::decompressKernel()
     }
     if (base && relocated) {
         p = base + relocated;
-        for (j = 0; j < 0x200; ++j, ++p) {
+        for (j = 0; j < 0x200 && ibeg <= p && p + 8 <= iend; ++j, ++p) {
             if (0==memcmp("\x01\x9c\x0b", p, 3)  // addl %ebx,d32(%ebx,%ecx)
             ) {
                 page_offset = 0u - get_te32(3+ p);
@@ -234,7 +241,7 @@ int PackVmlinuzI386::decompressKernel()
     }
     }
 
-    checkAlreadyPacked(obuf + setup_size, UPX_MIN(file_size - setup_size, (off_t)1024));
+    checkAlreadyPacked(obuf + setup_size, UPX_MIN(file_size - setup_size, 1024LL));
 
     int gzoff = setup_size;
     if (0x208<=h.version) {
@@ -259,18 +266,18 @@ int PackVmlinuzI386::decompressKernel()
         // try to decompress
         int klen;
         int fd;
-        off_t fd_pos;
+        upx_off_t fd_pos;
         for (;;)
         {
             klen = -1;
             fd_pos = -1;
             // open
             fi->seek(gzoff, SEEK_SET);
-            fd = dup(fi->getFd());
+            fd = fi->dupFd();
             if (fd < 0)
                 break;
             gzFile zf = gzdopen(fd, "rb");
-            if (zf == NULL)
+            if (zf == nullptr)
                 break;
             // estimate gzip-decompressed kernel size & alloc buffer
             if (ibuf.getSize() == 0)
@@ -299,12 +306,24 @@ int PackVmlinuzI386::decompressKernel()
             // Full ELF in theory; for now, try to handle as .bin at physical_start.
             // Check for PT_LOAD.p_paddr being ascending and adjacent.
             Elf_LE32_Ehdr const *const ehdr = (Elf_LE32_Ehdr const *)(void const *)ibuf;
+            // e_phoff/e_shoff and e_phnum/e_shnum come from the decompressed
+            // (untrusted) image; bound the header tables to it before the raw
+            // pointer walks below.
+            upx_uint64_t const u_klen = (unsigned) klen;
+            if (u_klen < sizeof(*ehdr)
+            ||  (upx_uint64_t)ehdr->e_phoff + (upx_uint64_t)ehdr->e_phnum * sizeof(Elf_LE32_Phdr) > u_klen
+            ||  (upx_uint64_t)ehdr->e_shoff + (upx_uint64_t)ehdr->e_shnum * sizeof(Elf_LE32_Shdr) > u_klen) {
+                throwCantPack("corrupt ELF in vmlinuz payload");
+            }
             Elf_LE32_Phdr const *phdr = (Elf_LE32_Phdr const *)(ehdr->e_phoff + (char const *)ehdr);
             Elf_LE32_Shdr const *shdr = (Elf_LE32_Shdr const *)(ehdr->e_shoff + (char const *)ehdr);
             unsigned hi_paddr = 0, lo_paddr = 0;
             unsigned delta_off = 0;
             for (unsigned j=0; j < ehdr->e_phnum; ++j, ++phdr) {
                 if (phdr->PT_LOAD==phdr->p_type) {
+                    if (file_size < phdr->p_filesz) {
+                        throwCantPack("bad phdr[%d].p_filesz %#x\n", j, (unsigned)phdr->p_filesz);
+                    }
                     unsigned step = (hi_paddr + phdr->p_align - 1) & ~(phdr->p_align - 1);
                     if (0==hi_paddr) { // first PT_LOAD
                         if (physical_start!=phdr->p_paddr) {
@@ -344,7 +363,7 @@ int PackVmlinuzI386::decompressKernel()
         // some checks
         if (fd_pos != file_size)
         {
-            //printf("fd_pos: %ld, file_size: %ld\n", (long)fd_pos, (long)file_size);
+            NO_printf("fd_pos: %jd, file_size: %lld\n", (intmax_t) fd_pos, file_size);
 
             // linux-2.6.21.5/arch/i386/boot/compressed/vmlinux.lds
             // puts .data.compressed ahead of .text, .rodata, etc;
@@ -428,21 +447,21 @@ Linker* PackVmlinuzI386::newLinker() const
 void PackVmlinuzI386::buildLoader(const Filter *ft)
 {
     // prepare loader
-    initLoader(stub_i386_linux_kernel_vmlinuz, sizeof(stub_i386_linux_kernel_vmlinuz));
+    initLoader(EM_386, stub_i386_linux_kernel_vmlinuz, sizeof(stub_i386_linux_kernel_vmlinuz));
     addLoader("LINUZ000",
               ph.first_offset_found == 1 ? "LINUZ010" : "",
               ft->id ? "LZCALLT1" : "",
               "LZIMAGE0",
               getDecompressorSections(),
-              NULL
+              nullptr
              );
     if (ft->id)
     {
         assert(ft->calls > 0);
-        addLoader("LZCALLT9", NULL);
+        addLoader("LZCALLT9", nullptr);
         addFilter32(ft->id);
     }
-    addLoader("LINUZ990,IDENTSTR,UPX1HEAD", NULL);
+    addLoader("LINUZ990,IDENTSTR,UPX1HEAD", nullptr);
 }
 
 
@@ -503,7 +522,7 @@ void PackVmlinuzI386::pack(OutputFile *fo)
 void PackBvmlinuzI386::buildLoader(const Filter *ft)
 {
     // prepare loader
-    initLoader(stub_i386_linux_kernel_vmlinuz, sizeof(stub_i386_linux_kernel_vmlinuz));
+    initLoader(EM_386, stub_i386_linux_kernel_vmlinuz, sizeof(stub_i386_linux_kernel_vmlinuz));
     if (0!=page_offset) { // relocatable kernel
         assert(0==ft->id || 0x40==(0xf0 & ft->id));  // others assume fixed buffer address
         addLoader("LINUZ000,LINUZ001,LINUZVGA,LINUZ101,LINUZ110",
@@ -511,7 +530,7 @@ void PackBvmlinuzI386::buildLoader(const Filter *ft)
             "LINUZ140,LZCUTPOI,LINUZ141",
             (ft->id ? "LINUZ145" : ""),
             (ph.first_offset_found == 1 ? "LINUZ010" : ""),
-            NULL);
+            nullptr);
     }
     else {
         addLoader("LINUZ000,LINUZ001,LINUZVGA,LINUZ005",
@@ -521,26 +540,26 @@ void PackBvmlinuzI386::buildLoader(const Filter *ft)
               "+40", // align the stuff to 4 byte boundary
               "UPX1HEAD", // 32 byte
               "LZCUTPOI",
-              NULL);
+              nullptr);
         // fake alignment for the start of the decompressor
         //linker->defineSymbol("LZCUTPOI", 0x1000);
     }
 
-    addLoader(getDecompressorSections(), NULL);
+    addLoader(getDecompressorSections(), nullptr);
 
     if (ft->id)
     {
             assert(ft->calls > 0);
         if (0x40==(0xf0 & ft->id)) {
-            addLoader("LZCKLLT9", NULL);
+            addLoader("LZCKLLT9", nullptr);
         }
         else {
-            addLoader("LZCALLT9", NULL);
+            addLoader("LZCALLT9", nullptr);
         }
         addFilter32(ft->id);
     }
     if (0!=page_offset) {
-        addLoader("LINUZ150,IDENTSTR,+40,UPX1HEAD", NULL);
+        addLoader("LINUZ150,IDENTSTR,+40,UPX1HEAD", nullptr);
         unsigned const l_len = getLoaderSize();
         unsigned const c_len = ALIGN_UP(ph.c_len, 4u);
         unsigned const e_len = getLoaderSectionStart("LINUZ141") -
@@ -558,7 +577,7 @@ void PackBvmlinuzI386::buildLoader(const Filter *ft)
         linker->defineSymbol("unc_offset", ph.overlap_overhead + ph.u_len - c_len);
     }
     else {
-        addLoader("LINUZ990", NULL);
+        addLoader("LINUZ990", nullptr);
     }
 }
 
@@ -594,12 +613,16 @@ void PackBvmlinuzI386::pack(OutputFile *fo)
             (res->lit_context_bits << 0) |
             (res->lit_pos_bits << 8) |
             (res->pos_bits << 16);
-        if (linker->bele->isBE()) // big endian - bswap32
-            acc_swab32s(&properties);
+        if (bele->isBE()) // big endian - bswap32
+            properties = bswap32(properties);
         linker->defineSymbol("lzma_properties", properties);
         // -2 for properties
-        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
-        linker->defineSymbol("lzma_u_len", ph.u_len);
+        if (linker->findSymbol("lzma_c_len", false)) {
+            linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        }
+        if (linker->findSymbol("lzma_u_len", false)) {
+            linker->defineSymbol("lzma_u_len", ph.u_len);
+        }
         unsigned const stack = getDecompressorWrkmemSize();
         linker->defineSymbol("lzma_stack_adjust", 0u - stack);
     }
@@ -670,7 +693,7 @@ void PackBvmlinuzI386::pack(OutputFile *fo)
 // unpack
 **************************************************************************/
 
-int PackVmlinuzI386::canUnpack()
+tribool PackVmlinuzI386::canUnpack()
 {
     if (readFileHeader() != getFormat())
         return false;
@@ -687,7 +710,7 @@ void PackVmlinuzI386::unpack(OutputFile *fo)
     // FIXME: but we could write the uncompressed "vmlinux" image
 
     ibuf.alloc(ph.c_len);
-    obuf.allocForUncompression(ph.u_len);
+    obuf.allocForDecompression(ph.u_len);
 
     fi->seek(setup_size + ph.buf_offset + ph.getPackHeaderSize(), SEEK_SET);
     fi->readx(ibuf, ph.c_len);
@@ -734,7 +757,7 @@ int PackVmlinuzARMEL::getStrategy(Filter &/*ft*/)
     return (opt->no_filter ? -3 : ((opt->filter > 0) ? -2 : 2));
 }
 
-bool PackVmlinuzARMEL::canPack()
+tribool PackVmlinuzARMEL::canPack()
 {
     return readFileHeader() == getFormat();
 }
@@ -749,7 +772,7 @@ int PackVmlinuzARMEL::readFileHeader()
             return 0;
         }
     }
-    return UPX_F_VMLINUZ_ARMEL;
+    return UPX_F_VMLINUZ_ARM;
 }
 
 int PackVmlinuzARMEL::decompressKernel()
@@ -759,7 +782,7 @@ int PackVmlinuzARMEL::decompressKernel()
     fi->seek(0, SEEK_SET);
     fi->readx(obuf, file_size);
 
-    //checkAlreadyPacked(obuf + setup_size, UPX_MIN(file_size - setup_size, (off_t)1024));
+    //checkAlreadyPacked(obuf + setup_size, UPX_MIN(file_size - setup_size, 1024LL));
 
     // Find head.S:
     //      bl decompress_kernel  # 0xeb......
@@ -841,18 +864,18 @@ int PackVmlinuzARMEL::decompressKernel()
         // try to decompress
         int klen;
         int fd;
-        off_t fd_pos;
+        upx_off_t fd_pos;
         for (;;)
         {
             klen = -1;
             fd_pos = -1;
             // open
             fi->seek(gzoff, SEEK_SET);
-            fd = dup(fi->getFd());
+            fd = fi->dupFd();
             if (fd < 0)
                 break;
             gzFile zf = gzdopen(fd, "rb");
-            if (zf == NULL)
+            if (zf == nullptr)
                 break;
             // estimate gzip-decompressed kernel size & alloc buffer
             if (ibuf.getSize() == 0)
@@ -920,32 +943,32 @@ Linker* PackVmlinuzARMEL::newLinker() const
     return new ElfLinkerArmLE;
 }
 
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/arm.v5a-linux.kernel.vmlinux.h"
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/arm.v5a-linux.kernel.vmlinuz-head.h"
 
 void PackVmlinuzARMEL::buildLoader(const Filter *ft)
 {
     // prepare loader; same as vmlinux (with 'x')
-    initLoader(stub_arm_v5a_linux_kernel_vmlinux, sizeof(stub_arm_v5a_linux_kernel_vmlinux));
-    addLoader("LINUX000", NULL);
+    initLoader(EM_ARM, stub_arm_v5a_linux_kernel_vmlinux, sizeof(stub_arm_v5a_linux_kernel_vmlinux));
+    addLoader("LINUX000", nullptr);
     if (ft->id) {
         assert(ft->calls > 0);
-        addLoader("LINUX010", NULL);
+        addLoader("LINUX010", nullptr);
     }
-    addLoader("LINUX020", NULL);
+    addLoader("LINUX020", nullptr);
     if (ft->id) {
         addFilter32(ft->id);
     }
-    addLoader("LINUX030", NULL);
-         if (ph.method == M_NRV2E_8) addLoader("NRV2E", NULL);
-    else if (ph.method == M_NRV2B_8) addLoader("NRV2B", NULL);
-    else if (ph.method == M_NRV2D_8) addLoader("NRV2D", NULL);
+    addLoader("LINUX030", nullptr);
+         if (ph.method == M_NRV2E_8) addLoader("NRV2E", nullptr);
+    else if (ph.method == M_NRV2B_8) addLoader("NRV2B", nullptr);
+    else if (ph.method == M_NRV2D_8) addLoader("NRV2D", nullptr);
     else if (M_IS_LZMA(ph.method))   addLoader("LZMA_ELF00",
-        (opt->small ? "LZMA_DEC10" : "LZMA_DEC20"), "LZMA_DEC30", NULL);
+        (opt->small ? "LZMA_DEC10" : "LZMA_DEC20"), "LZMA_DEC30", nullptr);
     else throwBadLoader();
-    addLoader("IDENTSTR,UPX1HEAD", NULL);
+    addLoader("IDENTSTR,UPX1HEAD", nullptr);
 
     // To debug (2008-09-14):
     //   Build gdb-6.8-21.fc9.src.rpm; ./configure --target=arm-none-elf; make
@@ -1028,7 +1051,7 @@ void PackVmlinuzARMEL::pack(OutputFile *fo)
         throwNotCompressible();
 }
 
-int PackVmlinuzARMEL::canUnpack()
+tribool PackVmlinuzARMEL::canUnpack()
 {
     if (readFileHeader() != getFormat())
         return false;
@@ -1044,7 +1067,7 @@ void PackVmlinuzARMEL::unpack(OutputFile *fo)
     // FIXME: but we could write the uncompressed "vmlinux" image
 
     ibuf.alloc(ph.c_len);
-    obuf.allocForUncompression(ph.u_len);
+    obuf.allocForDecompression(ph.u_len);
 
     fi->seek(setup_size + ph.buf_offset + ph.getPackHeaderSize(), SEEK_SET);
     fi->readx(ibuf, ph.c_len);
@@ -1065,5 +1088,7 @@ void PackVmlinuzARMEL::unpack(OutputFile *fo)
         //fo->write(obuf, ph.u_len);
     }
 }
+
+#endif // WITH_ZLIB
 
 /* vim:set ts=4 sw=4 et: */

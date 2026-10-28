@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,59 +25,58 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
 #include "conf.h"
-
 
 /*************************************************************************
 //
 **************************************************************************/
 
-unsigned long Throwable::counter = 0;
+/*static*/ Throwable::Stats Throwable::stats;
 
-Throwable::Throwable(const char *m, int e, bool w) NOTHROW
-    : super(), msg(NULL), err(e), is_warning(w)
-{
-    if (m)
-        msg = strdup(m);
-#if 0
-    fprintf(stderr, "construct exception: %s %lu\n", msg, counter);
-    counter++;
-#endif
+Throwable::Throwable(const char *m, int e, bool w) noexcept : super(),
+                                                              msg(nullptr),
+                                                              err(e),
+                                                              is_warning(w) {
+    if (m != nullptr) {
+        msg = ::strdup(m);
+        assert_noexcept(msg != nullptr);
+    }
+    NO_fprintf(stderr, "construct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    stats.counter_current += 1;
+    stats.counter_total += 1;
 }
 
-
-Throwable::Throwable(const Throwable &other) NOTHROW
-    : super(other), msg(NULL), err(other.err), is_warning(other.is_warning)
-{
-    if (other.msg)
-        msg = strdup(other.msg);
-#if 0
-    fprintf(stderr, "copy exception: %s %lu\n", msg, counter);
-    counter++;
-#endif
+Throwable::Throwable(const Throwable &other) noexcept : super(other),
+                                                        msg(nullptr),
+                                                        err(other.err),
+                                                        is_warning(other.is_warning) {
+    if (other.msg != nullptr) {
+        msg = ::strdup(other.msg);
+        assert_noexcept(msg != nullptr);
+    }
+    NO_fprintf(stderr, "copy construct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    stats.counter_current += 1;
+    stats.counter_total += 1;
 }
 
-
-Throwable::~Throwable() NOTHROW
-{
-#if 0
-    counter--;
-    fprintf(stderr, "destruct exception: %s %lu\n", msg, counter);
-#endif
-    if (msg)
-        free(msg);
+Throwable::~Throwable() noexcept {
+    stats.counter_current -= 1;
+    NO_fprintf(stderr, "destruct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    upx::owner_free(msg);
 }
-
 
 /*************************************************************************
 // compression
 **************************************************************************/
 
-void throwCantPack(const char *msg)
-{
+void throwCantPack(const char *msg) {
     // UGLY, but makes things easier
-    if (opt->cmd == CMD_COMPRESS)
+    if (opt->cmd == CMD_NONE)
+        throw CantPackException(msg);
+    else if (opt->cmd == CMD_COMPRESS)
         throw CantPackException(msg);
     else if (opt->cmd == CMD_FILEINFO)
         throw CantPackException(msg);
@@ -85,119 +84,141 @@ void throwCantPack(const char *msg)
         throw CantUnpackException(msg);
 }
 
-void throwCantPackExact()
-{
-    throwCantPack("option '--exact' does not work with this file");
-}
+void throwCantPackExact() { throwCantPack("option '--exact' does not work with this file"); }
 
-void throwFilterException()
-{
-    throwCantPack("filter problem");
-}
+void throwFilterException() { throwCantPack("filter problem"); }
 
-void throwUnknownExecutableFormat(const char *msg, bool warn)
-{
+void throwUnknownExecutableFormat(const char *msg, bool warn) {
     throw UnknownExecutableFormatException(msg, warn);
 }
 
-void throwNotCompressible(const char *msg)
-{
-    throw NotCompressibleException(msg);
-}
+void throwNotCompressible(const char *msg) { throw NotCompressibleException(msg); }
 
-void throwAlreadyPacked(const char *msg)
-{
-    throw AlreadyPackedException(msg);
-}
+void throwAlreadyPacked(const char *msg) { throw AlreadyPackedException(msg); }
 
-void throwAlreadyPackedByUPX(const char *msg)
-{
-    if (msg == NULL)
+void throwAlreadyPackedByUPX(const char *msg) {
+    if (msg == nullptr)
         msg = "already packed by UPX";
     throwAlreadyPacked(msg);
 }
-
 
 /*************************************************************************
 // decompression
 **************************************************************************/
 
-void throwCantUnpack(const char *msg)
-{
+void throwCantUnpack(const char *msg) {
     // UGLY, but makes things easier
     throwCantPack(msg);
 }
 
-void throwNotPacked(const char *msg)
-{
-    if (msg == NULL)
+void throwNotPacked(const char *msg) {
+    if (msg == nullptr)
         msg = "not packed by UPX";
     throw NotPackedException(msg);
 }
 
-void throwChecksumError()
-{
-    throw Exception("checksum error");
-}
+void throwChecksumError() { throw Exception("checksum error"); }
 
-void throwCompressedDataViolation()
-{
-    throw Exception("compressed data violation");
-}
-
+void throwCompressedDataViolation() { throw Exception("compressed data violation"); }
 
 /*************************************************************************
 // other
 **************************************************************************/
 
-void throwInternalError(const char *msg)
-{
-    throw InternalError(msg);
-}
+void throwInternalError(const char *msg) { throw InternalError(msg); }
 
-void throwBadLoader()
-{
-    throwInternalError("bad loader");
-}
+void throwBadLoader() { throwInternalError("bad loader"); }
 
-
-void throwOutOfMemoryException(const char *msg)
-{
-    if (msg == NULL)
+void throwOutOfMemoryException(const char *msg) {
+    if (msg == nullptr)
         msg = "out of memory";
     throw OutOfMemoryException(msg);
 }
 
+void throwIOException(const char *msg, int e) { throw IOException(msg, e); }
 
-void throwIOException(const char *msg, int e)
-{
-    throw IOException(msg, e);
-}
-
-
-void throwEOFException(const char *msg, int e)
-{
-    if (msg == NULL && e == 0)
+void throwEOFException(const char *msg, int e) {
+    if (msg == nullptr && e == 0)
         msg = "premature end of file";
     throw EOFException(msg, e);
 }
 
-
 /*************************************************************************
-//
+// varargs overloads
 **************************************************************************/
 
-const char *prettyName(const char *n) NOTHROW
-{
-    if (n == NULL)
+template <>
+void throwCantPack(const char *format, ...) {
+    char msg[1024];
+    va_list ap;
+    va_start(ap, format);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    va_end(ap);
+    throwCantPack(msg);
+}
+
+template <>
+void throwCantUnpack(const char *format, ...) {
+    char msg[1024];
+    va_list ap;
+    va_start(ap, format);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    va_end(ap);
+    throwCantUnpack(msg);
+}
+
+template <>
+void throwInternalError(const char *format, ...) {
+    char msg[1024];
+    va_list ap;
+    va_start(ap, format);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    va_end(ap);
+    throwInternalError(msg);
+}
+
+template <>
+void throwIOException2(const char *format, ...) {
+    char msg[1024];
+    va_list ap;
+    va_start(ap, format);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    va_end(ap);
+    throwIOException(msg);
+}
+
+/*************************************************************************
+// util
+**************************************************************************/
+
+void assertFailed(const char *expr, const char *file, int line, const char *func) noexcept {
+    fflush(stdout);
+    fprintf(stderr, "Assertion failed: %s (%s: %s: %d)\n", expr, file, func, line);
+    std::terminate();
+}
+
+void assertFailed(int e, const char *expr, const char *file, int line, const char *func) noexcept {
+    if very_unlikely (!e)
+        assertFailed(expr, file, line, func);
+}
+
+void throwAssertFailed(const char *expr, const char *file, int line, const char *func) may_throw {
+    if (opt->debug.debug_level >= 1) {
+        throwCantPack("corrupted file; details: %s (%s: %s: %d)", expr, file, func, line);
+    } else {
+        throwCantPack("corrupted file; try '--debug' for more details");
+    }
+}
+
+const char *prettyExceptionName(const char *n) noexcept {
+    if (n == nullptr)
         return "(null)";
-    while (*n)
-    {
-        if (*n >= '0' && *n <= '9')             // Linux ABI
+    while (*n) {
+        if (*n >= '0' && *n <= '9') // Linux ABI
             n++;
         else if (*n == ' ')
             n++;
-        else if (strncmp(n, "class ", 6) == 0)  // Visual C++
+        else if (strncmp(n, "class ", 6) == 0) // Visual C++ (MSVC)
             n += 6;
         else
             break;

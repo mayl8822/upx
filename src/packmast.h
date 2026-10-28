@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,43 +25,45 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-#ifndef __UPX_PACKMASTER_H
-#define __UPX_PACKMASTER_H 1
+#pragma once
 
-class Packer;
+class PackerBase;
 class InputFile;
 class OutputFile;
 
 /*************************************************************************
-// interface for work.cpp
+// dispatch to a concrete subclass of class PackerBase; see work.cpp
 **************************************************************************/
 
-class PackMaster {
+class PackMaster final {
 public:
-    PackMaster(InputFile *f, options_t *o = NULL);
-    virtual ~PackMaster();
+    explicit PackMaster(InputFile *f, Options *o = nullptr) noexcept;
+    ~PackMaster() noexcept;
 
-    void pack(OutputFile *fo);
-    void unpack(OutputFile *fo);
-    void test();
-    void list();
-    void fileInfo();
+    void pack(OutputFile *fo) may_throw;
+    void unpack(OutputFile *fo) may_throw;
+    void test() may_throw;
+    void list() may_throw;
+    void fileInfo() may_throw;
 
-    typedef Packer *(*visit_func_t)(Packer *p, void *user);
-    static Packer *visitAllPackers(visit_func_t, InputFile *f, const options_t *, void *user);
+    typedef tribool (*visit_func_t)(PackerBase *pb, void *user);
+    static noinline PackerBase *visitAllPackers(visit_func_t, InputFile *f, const Options *,
+                                                void *user) may_throw;
 
 private:
-    InputFile *fi;
-    Packer *p;
+    static noinline PackerBase *getPacker(InputFile *f) may_throw;
+    static noinline PackerBase *getUnpacker(InputFile *f) may_throw;
 
-    static Packer *getPacker(InputFile *f);
-    static Packer *getUnpacker(InputFile *f);
-
+    OwningPointer(PackerBase) packer = nullptr; // owner
+    InputFile *const fi;                        // reference, required
     // setup local options for each file
-    options_t local_options;
-    options_t *saved_opt;
-};
+    Options local_options;
+    Options *saved_opt = nullptr;
 
-#endif /* already included */
+private: // UPX conventions
+    UPX_CXX_DISABLE_ADDRESS(PackMaster)
+    UPX_CXX_DISABLE_COPY_MOVE(PackMaster)
+    UPX_CXX_DISABLE_NEW_DELETE_NO_VIRTUAL(PackMaster)
+};
 
 /* vim:set ts=4 sw=4 et: */

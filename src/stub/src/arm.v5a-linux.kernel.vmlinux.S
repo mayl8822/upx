@@ -3,9 +3,9 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2020 Laszlo Molnar
-;  Copyright (C) 2004-2020 John Reiser
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Laszlo Molnar
+;  Copyright (C) John Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -90,13 +90,13 @@ section         LINUX020
 // =============
 section         ctok32.00
 //f_unfilter:  @ (char *ptr, uint len, uint cto, uint fid)
-        ptr  .req r0
-        len  .req r1
-        cto  .req r2  @ unused
-        fid  .req r3
+    ptr  .req r0
+    len  .req r1
+    cto  .req r2  @ unused
+    fid  .req r3
 
-        t1   .req r2
-        t2   .req r3
+    t1   .req r2
+    t2   .req r3
 unfilter:
         and fid,fid,#0xff
 section         ctok32.50
@@ -126,10 +126,13 @@ tst_unf:
         bne top_unf
         mov pc,lr
 
-        .unreq ptr
-        .unreq len
-        .unreq cto
-        .unreq fid
+    .unreq ptr
+    .unreq len
+    .unreq cto
+    .unreq fid
+
+    .unreq t1
+    .unreq t2
 
 section         LINUX030
 decompressor:

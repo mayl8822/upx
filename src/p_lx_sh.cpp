@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -47,9 +47,9 @@
 //
 **************************************************************************/
 
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/i386-linux.elf.shell-entry.h"
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/i386-linux.elf.shell-fold.h"
 
 
@@ -62,15 +62,6 @@ PackLinuxI386sh::~PackLinuxI386sh()
 {
 }
 
-static unsigned
-umax(unsigned a, unsigned b)
-{
-    if (a <= b) {
-        return b;
-    }
-    return a;
-}
-
 void
 PackLinuxI386sh::buildLoader(Filter const *ft)
 {
@@ -78,7 +69,7 @@ PackLinuxI386sh::buildLoader(Filter const *ft)
     MemBuffer buf(sz_fold);
     memcpy(buf, stub_i386_linux_elf_shell_fold, sz_fold);
 
-    checkPatch(NULL, 0, 0, 0);  // reset
+    checkPatch(nullptr, 0, 0, 0);  // reset
     patch_le32(buf,sz_fold,"UPX3",l_shname);
     patch_le32(buf,sz_fold,"UPX2",o_shname);
 
@@ -91,10 +82,10 @@ PackLinuxI386sh::buildLoader(Filter const *ft)
     // filter
     optimizeFilter(&fold_ft, buf, sz_fold);
     unsigned fold_hdrlen = sizeof(l_info) + sizeof(Elf32_Ehdr) +
-        sizeof(Elf32_Phdr) * get_te32(&((Elf32_Ehdr const *)(void *)buf)->e_phnum);
-    if (0 == get_le32(fold_hdrlen + buf)) {
+        sizeof(Elf32_Phdr) * get_te16(&((Elf32_Ehdr const *)(void *)buf)->e_phnum);
+    if (0 == get_le32(buf + fold_hdrlen)) {
         // inconsistent SIZEOF_HEADERS in *.lds (ld, binutils)
-        fold_hdrlen = umax(0x80, fold_hdrlen);
+        fold_hdrlen = upx::umax(0x80u, fold_hdrlen);
     }
     bool success = fold_ft.filter(buf + fold_hdrlen, sz_fold - fold_hdrlen);
     UNUSED(success);
@@ -114,17 +105,22 @@ bool PackLinuxI386sh::getShellName(char *buf)
     buf[l_shname] = 0;
     static char const *const shname[] = { // known shells that accept "-c" arg
         "ash", "bash", "bsh", "csh", "ksh", "pdksh", "sh", "tcsh", "zsh",
-        "python",
-        NULL
+        "python", "python2", "python3",
+        nullptr
     };
     const char *bname = strrchr(buf, '/');
-    if (bname == NULL)
+    if (bname == nullptr)
         return false;
-    for (int j = 0; NULL != shname[j]; ++j) {
+    for (int j = 0; nullptr != shname[j]; ++j) {
         if (0 == strcmp(shname[j], bname + 1)) {
-            bool const s = super::canPack();
+            bool const s = bool(super::canPack());
             if (s) {
                 opt->o_unix.blocksize = blocksize = file_size;
+            }
+            unsigned size = fi->st_size();
+            if (size > (125<<10)) { // 128KB but allow 3KB for environment
+                printWarn(fi->getName(), "Likely E2BIG for size=%u", size);
+                return false;
             }
             return s;
         }
@@ -133,7 +129,7 @@ bool PackLinuxI386sh::getShellName(char *buf)
 }
 
 
-bool PackLinuxI386sh::canPack()
+tribool PackLinuxI386sh::canPack()
 {
 #if defined(__linux__)  //{
     // only compress i386sh scripts when running under Linux

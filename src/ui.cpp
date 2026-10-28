@@ -1,9 +1,9 @@
-/* ui.cpp --
+/* ui.cpp -- User Interface
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,11 +25,14 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
+// INFO: not thread-safe; instantiated and used by class Packer, and the
+// static (global) variables are also updated in work.cpp
+
 #include "conf.h"
 #include "file.h"
-#include "ui.h"
-#include "screen.h"
 #include "packer.h"
+#include "ui.h"
+#include "console/screen.h"
 
 #if 1 && (USE_SCREEN)
 #define UI_USE_SCREEN 1
@@ -43,7 +46,7 @@ enum {
     M_CB_SCREEN // 2 line callback using screen
 };
 
-struct UiPacker::State {
+struct UiPacker::State final {
     int mode;
 
     unsigned u_len;
@@ -76,6 +79,7 @@ struct UiPacker::State {
 #endif
 };
 
+// static totals
 unsigned UiPacker::total_files = 0;
 unsigned UiPacker::total_files_done = 0;
 upx_uint64_t UiPacker::total_c_len = 0;
@@ -92,18 +96,13 @@ unsigned UiPacker::update_fu_len = 0;
 **************************************************************************/
 
 static const char header_line1[] = "        File size         Ratio      Format      Name\n";
-static char header_line2[] = "   --------------------   ------   -----------   -----------\n";
+static const char header_line2[] = "   --------------------   ------   -----------   -----------\n";
 
-static char progress_filler[] = ".*[]";
+static const char progress_filler[4 + 1] = ".*[]";
 
-static void init_global_constants(void) {
+static noinline void init_global_constants() noexcept {
 #if 0 && (ACC_OS_DOS16 || ACC_OS_DOS32)
     // FIXME: should test codepage here
-
-    static bool done = false;
-    if (done)
-        return;
-    done = true;
 
 #if 1 && (ACC_OS_DOS32) && defined(__DJGPP__)
     /* check for Windows NT/2000/XP */
@@ -129,7 +128,7 @@ static void init_global_constants(void) {
 static const char *mkline(upx_uint64_t fu_len, upx_uint64_t fc_len, upx_uint64_t u_len,
                           upx_uint64_t c_len, const char *format_name, const char *filename,
                           bool decompress = false) {
-    static char buf[2048];
+    static char buf[2048]; // static! // TODO later: check if affected by WITH_THREADS
     char r[7 + 1];
     char fn[15 + 1];
     const char *f;
@@ -140,14 +139,14 @@ static const char *mkline(upx_uint64_t fu_len, upx_uint64_t fc_len, upx_uint64_t
     if (ratio >= 1000 * 1000)
         strcpy(r, "overlay");
     else
-        upx_snprintf(r, sizeof(r), "%3u.%02u%%", ratio / 10000, (ratio % 10000) / 100);
+        upx_safe_snprintf(r, sizeof(r), "%3u.%02u%%", ratio / 10000, (ratio % 10000) / 100);
     if (decompress)
         f = "%10lld <-%10lld  %7s %15s %s";
     else
         f = "%10lld ->%10lld  %7s %15s %s";
     center_string(fn, sizeof(fn), format_name);
     assert(strlen(fn) == 15);
-    upx_snprintf(buf, sizeof(buf), f, (long long) fu_len, (long long) fc_len, r, fn, filename);
+    upx_safe_snprintf(buf, sizeof(buf), f, (long long) fu_len, (long long) fc_len, r, fn, filename);
     UNUSED(u_len);
     UNUSED(c_len);
     return buf;
@@ -157,13 +156,14 @@ static const char *mkline(upx_uint64_t fu_len, upx_uint64_t fc_len, upx_uint64_t
 //
 **************************************************************************/
 
-UiPacker::UiPacker(const Packer *p_) : ui_pass(0), ui_total_passes(0), p(p_), s(NULL) {
-    init_global_constants();
+UiPacker::UiPacker(const PackerBase *pb_) : pb(pb_) {
+    static upx_std_once_flag init_done;
+    upx_std_call_once(init_done, init_global_constants);
 
     cb.reset();
 
     s = new State;
-    memset(s, 0, sizeof(*s));
+    mem_clear(s);
     s->msg_buf[0] = '\r';
 
 #if defined(UI_USE_SCREEN)
@@ -177,16 +177,16 @@ UiPacker::UiPacker(const Packer *p_) : ui_pass(0), ui_total_passes(0), p(p_), s(
         s->mode = M_INFO;
     else if (opt->verbose == 1 || opt->no_progress)
         s->mode = M_MSG;
-    else if (s->screen == NULL)
+    else if (s->screen == nullptr)
         s->mode = M_CB_TERM;
     else
         s->mode = M_CB_SCREEN;
 }
 
-UiPacker::~UiPacker() {
+UiPacker::~UiPacker() noexcept {
     cb.reset();
-    delete s;
-    s = NULL;
+    // owner
+    upx::owner_delete(s);
 }
 
 /*************************************************************************
@@ -195,12 +195,12 @@ UiPacker::~UiPacker() {
 
 void UiPacker::printInfo(int nl) {
     if (opt->all_methods && s->total_passes > 1)
-        con_fprintf(stdout, "Compressing %s [%s]%s", p->fi->getName(), p->getName(),
+        con_fprintf(stdout, "Compressing %s [%s]%s", pb->fi->getName(), pb->getName(),
                     nl ? "\n" : "");
     else {
         char method_name[32 + 1];
-        set_method_name(method_name, sizeof(method_name), p->ph.method, p->ph.level);
-        con_fprintf(stdout, "Compressing %s [%s, %s]%s", p->fi->getName(), p->getName(),
+        set_method_name(method_name, sizeof(method_name), pb->ph.method, pb->ph.level);
+        con_fprintf(stdout, "Compressing %s [%s, %s]%s", pb->fi->getName(), pb->getName(),
                     method_name, nl ? "\n" : "");
     }
 }
@@ -240,7 +240,7 @@ void UiPacker::startCallback(unsigned u_len, unsigned step, int pass, int total_
     cb.user = this; // parameter for static function UiPacker::progress_callback()
 
     if (s->mode == M_CB_TERM) {
-        const char *fname = fn_basename(p->fi->getName());
+        const char *fname = fn_basename(pb->fi->getName());
         int l = (int) strlen(fname);
         if (l > 0 && l <= 30) {
             strcpy(&s->msg_buf[s->bar_pos], fname);
@@ -259,8 +259,8 @@ void UiPacker::startCallback(unsigned u_len, unsigned step, int pass, int total_
             total_passes /= 10;
         } while (total_passes > 0);
         buflen = sizeof(s->msg_buf) - s->bar_pos;
-        l = upx_snprintf(&s->msg_buf[s->bar_pos], buflen, "%*d/%*d  ", s->pass_digits, s->pass,
-                         s->pass_digits, s->total_passes);
+        l = upx_safe_snprintf(&s->msg_buf[s->bar_pos], buflen, "%*d/%*d  ", s->pass_digits, s->pass,
+                              s->pass_digits, s->total_passes);
         if (l > 0 && s->bar_len - l > 10) {
             s->bar_len -= l;
             s->bar_pos += l;
@@ -353,7 +353,8 @@ void UiPacker::endCallback(bool done) {
 // the callback
 **************************************************************************/
 
-void __acc_cdecl UiPacker::progress_callback(upx_callback_p cb, unsigned isize, unsigned osize) {
+/*static*/
+void __acc_cdecl UiPacker::progress_callback(upx_callback_t *cb, unsigned isize, unsigned osize) {
     // printf("%6d %6d %d\n", isize, osize, state);
     UiPacker *self = (UiPacker *) cb->user;
     self->doCallback(isize, osize);
@@ -399,7 +400,7 @@ void UiPacker::doCallback(unsigned isize, unsigned osize) {
     char *m = &s->msg_buf[s->bar_pos];
     *m++ = progress_filler[2];
     for (i = 0; i < s->bar_len; i++)
-        *m++ = progress_filler[i <= pos];
+        *m++ = progress_filler[i <= pos ? 1 : 0];
     *m++ = progress_filler[3];
 
     // compute current compression ratio
@@ -408,8 +409,8 @@ void UiPacker::doCallback(unsigned isize, unsigned osize) {
         ratio = get_ratio(isize, osize);
 
     int buflen = (int) (&s->msg_buf[sizeof(s->msg_buf)] - m);
-    upx_snprintf(m, buflen, "  %3d.%1d%%  %c ", ratio / 10000, (ratio % 10000) / 1000,
-                 spinner[s->spin_counter & 3]);
+    upx_safe_snprintf(m, buflen, "  %3d.%1d%%  %c ", ratio / 10000, (ratio % 10000) / 1000,
+                      spinner[s->spin_counter & 3]);
     assert(strlen(s->msg_buf) < 1 + 80);
 
     s->pos = pos;
@@ -461,17 +462,18 @@ void UiPacker::uiPackEnd(const OutputFile *fo) {
         printClearLine(stdout);
     }
 
-    const char *name = p->fi->getName();
+    const char *name = pb->fi->getName();
     if (opt->output_name)
         name = opt->output_name;
     else if (opt->to_stdout)
         name = "<stdout>";
-    con_fprintf(stdout, "%s\n", mkline(p->ph.u_file_size, fo->st_size(), p->ph.u_len, p->ph.c_len,
-                                       p->getName(), fn_basename(name)));
+    con_fprintf(stdout, "%s\n",
+                mkline(pb->ph.u_file_size, fo->st_size(), pb->ph.u_len, pb->ph.c_len, pb->getName(),
+                       fn_basename(name)));
     printSetNl(0);
 }
 
-void UiPacker::uiPackTotal() {
+/*static*/ void UiPacker::uiPackTotal() {
     uiListTotal();
     uiFooter("Packed");
 }
@@ -491,17 +493,18 @@ void UiPacker::uiUnpackEnd(const OutputFile *fo) {
     if (s->mode == M_QUIET)
         return;
 
-    const char *name = p->fi->getName();
+    const char *name = pb->fi->getName();
     if (opt->output_name)
         name = opt->output_name;
     else if (opt->to_stdout)
         name = "<stdout>";
-    con_fprintf(stdout, "%s\n", mkline(fo->getBytesWritten(), p->file_size, p->ph.u_len,
-                                       p->ph.c_len, p->getName(), fn_basename(name), true));
+    con_fprintf(stdout, "%s\n",
+                mkline(fo->getBytesWritten(), pb->file_size, pb->ph.u_len, pb->ph.c_len,
+                       pb->getName(), fn_basename(name), true));
     printSetNl(0);
 }
 
-void UiPacker::uiUnpackTotal() {
+/*static*/ void UiPacker::uiUnpackTotal() {
     uiListTotal(true);
     uiFooter("Unpacked");
 }
@@ -513,21 +516,23 @@ void UiPacker::uiUnpackTotal() {
 void UiPacker::uiListStart() { total_files++; }
 
 void UiPacker::uiList() {
-    const char *name = p->fi->getName();
-    con_fprintf(stdout, "%s\n", mkline(p->ph.u_file_size, p->file_size, p->ph.u_len, p->ph.c_len,
-                                       p->getName(), name));
+    const char *name = pb->fi->getName();
+    con_fprintf(
+        stdout, "%s\n",
+        mkline(pb->ph.u_file_size, pb->file_size, pb->ph.u_len, pb->ph.c_len, pb->getName(), name));
     printSetNl(0);
 }
 
 void UiPacker::uiListEnd() { uiUpdate(); }
 
-void UiPacker::uiListTotal(bool decompress) {
+/*static*/ void UiPacker::uiListTotal(bool decompress) {
     if (opt->verbose >= 1 && total_files >= 2) {
         char name[32];
-        upx_snprintf(name, sizeof(name), "[ %u file%s ]", total_files_done,
-                     total_files_done == 1 ? "" : "s");
-        con_fprintf(stdout, "%s%s\n", header_line2, mkline(total_fu_len, total_fc_len, total_u_len,
-                                                           total_c_len, "", name, decompress));
+        upx_safe_snprintf(name, sizeof(name), "[ %u file%s ]", total_files_done,
+                          total_files_done == 1 ? "" : "s");
+        con_fprintf(
+            stdout, "%s%s\n", header_line2,
+            mkline(total_fu_len, total_fc_len, total_u_len, total_c_len, "", name, decompress));
         printSetNl(0);
     }
 }
@@ -540,7 +545,7 @@ void UiPacker::uiTestStart() {
     total_files++;
 
     if (opt->verbose >= 1) {
-        con_fprintf(stdout, "testing %s ", p->fi->getName());
+        con_fprintf(stdout, "testing %s ", pb->fi->getName());
         fflush(stdout);
         printSetNl(1);
     }
@@ -555,47 +560,41 @@ void UiPacker::uiTestEnd() {
     uiUpdate();
 }
 
-void UiPacker::uiTestTotal() { uiFooter("Tested"); }
+/*static*/ void UiPacker::uiTestTotal() { uiFooter("Tested"); }
 
 /*************************************************************************
 // info
 **************************************************************************/
 
 bool UiPacker::uiFileInfoStart() {
-#if defined(_WIN32) // msvcrt
-#define PRLLD "I64d"
-#else
-#define PRLLD "lld"
-#endif
     total_files++;
 
     int fg = con_fg(stdout, FG_CYAN);
-    con_fprintf(stdout, "%s [%s, %s]\n", p->fi->getName(), p->getFullName(opt), p->getName());
+    con_fprintf(stdout, "%s [%s, %s]\n", pb->fi->getName(), pb->getFullName(opt), pb->getName());
     fg = con_fg(stdout, fg);
     UNUSED(fg);
-    if (p->ph.c_len > 0) {
-        con_fprintf(stdout, "  %8" PRLLD " bytes", (long long) p->file_size);
+    if (pb->ph.c_len > 0) {
+        con_fprintf(stdout, "  %8llu bytes", pb->file_size_u);
         con_fprintf(stdout, ", compressed by UPX %d, method %d, level %d, filter 0x%02x/0x%02x\n",
-                    p->ph.version, p->ph.method, p->ph.level, p->ph.filter, p->ph.filter_cto);
+                    pb->ph.version, pb->ph.method, pb->ph.level, pb->ph.filter, pb->ph.filter_cto);
         return false;
     } else {
-        con_fprintf(stdout, "  %8" PRLLD " bytes", (long long) p->file_size);
+        con_fprintf(stdout, "  %8llu bytes", pb->file_size_u);
         con_fprintf(stdout, ", not compressed by UPX\n");
         return true;
     }
-#undef PRLLD
 }
 
 void UiPacker::uiFileInfoEnd() { uiUpdate(); }
 
-void UiPacker::uiFileInfoTotal() {}
+/*static*/ void UiPacker::uiFileInfoTotal() {}
 
 /*************************************************************************
 // util
 **************************************************************************/
 
-void UiPacker::uiHeader() {
-    static bool done = false;
+/*static*/ void UiPacker::uiHeader() {
+    static upx_std_atomic(bool) done;
     if (done)
         return;
     done = true;
@@ -606,8 +605,8 @@ void UiPacker::uiHeader() {
     }
 }
 
-void UiPacker::uiFooter(const char *t) {
-    static bool done = false;
+/*static*/ void UiPacker::uiFooter(const char *t) {
+    static upx_std_atomic(bool) done;
     if (done)
         return;
     done = true;
@@ -624,14 +623,14 @@ void UiPacker::uiFooter(const char *t) {
     }
 }
 
-void UiPacker::uiUpdate(off_t fc_len, off_t fu_len) {
-    update_fc_len = (fc_len >= 0) ? fc_len : p->file_size;
-    update_fu_len = (fu_len >= 0) ? fu_len : p->ph.u_file_size;
-    update_c_len = p->ph.c_len;
-    update_u_len = p->ph.u_len;
+void UiPacker::uiUpdate(upx_off_t fc_len, upx_off_t fu_len) {
+    update_fc_len = (fc_len >= 0) ? fc_len : pb->file_size_u;
+    update_fu_len = (fu_len >= 0) ? fu_len : pb->ph.u_file_size;
+    update_c_len = pb->ph.c_len;
+    update_u_len = pb->ph.u_len;
 }
 
-void UiPacker::uiConfirmUpdate() {
+/*static*/ void UiPacker::uiConfirmUpdate() {
     total_files_done++;
     total_fc_len += update_fc_len;
     total_fu_len += update_fu_len;

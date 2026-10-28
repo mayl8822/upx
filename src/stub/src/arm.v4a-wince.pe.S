@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -33,8 +33,8 @@
 
 // DEBUG == 0 -> none
 // DEBUG == 1 -> for armpe_tester
-// DEBUG == 2 -> wince - dumps memory
-// DEBUG == 3 -> wince - removes files
+// DEBUG == 2 -> win32 - dumps memory
+// DEBUG == 3 -> win32 - removes files
 
 #define DEBUG 0
 #if DEBUG == 0

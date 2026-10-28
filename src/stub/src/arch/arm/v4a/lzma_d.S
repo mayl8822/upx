@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,16 +34,12 @@
   section LZMA_ELF00
 //decompress:  // (uchar const *src, size_t lsrc, uchar *dst, u32 &ldst, uint method)
 /* Arguments according to calling convention */
-#define src  r0
-#define lsrc r1
-#define dst  r2
-#define ldst r3  /* Out: actually a reference: &len_dst */
-#define meth [sp,#0]
+src  .req r0
+lsrc .req r1
+dst  .req r2
+ldst .req r3  /* Out: actually a reference: &len_dst */
 
   // bkpt  // debugging
-
-#define M_LZMA          14
-        ldrb ip,meth; cmp ip,#M_LZMA; bne not_lzma
 
 #if defined(LINUX_ARM_CACHEFLUSH)||defined(DARWIN_ARM_CACHEFLUSH)  /*{*/
         PUSH {dst,ldst, fp,lr}  // dst,ldst for cache flush
@@ -51,10 +47,10 @@
         PUSH {          fp,lr}
 #endif  /*}*/
 
-#define a0 r0
-#define a1 r1
-#define a2 r2
-#define a3 r3
+a0 .req r0
+#define a1 r1  // bug: a1 .req r1
+#define a2 r2  // bug: a2 .req r2
+#define a3 r3  // bug: a3 .req r3
 #define a4    [sp,#0*4] /* outp */
 #define a5    [sp,#1*4] /* outSize */
 #define a6    [sp,#2*4] /* &outSizeProcessed */
@@ -104,7 +100,7 @@
         strb ip,[sp,#0 + State]
 
         add a0,sp,#State
-        bl 1f  // the call
+        bl 1f  // call C-language LzmaDecompress
         mov sp,fp
 
 #if defined(LINUX_ARM_CACHEFLUSH)  /*{*/
@@ -125,8 +121,9 @@
         mov r0,r4  // result value
 #endif  /*}*/
 
-        POP {fp,pc}
-1:
+        POP {fp,pc}  // RETURN!
+
+1: // either LZMA_DEC10 or LZMA_DEC20 inserted next by buildLinuxLoader
 
   section LZMA_DEC20
 #include "lzma_d_cf.S"
@@ -140,8 +137,6 @@
 #endif  /*}*/
 
   section LZMA_DEC30
-
-not_lzma:
 
 // vi:ts=8:et
 

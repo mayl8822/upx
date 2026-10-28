@@ -1,11 +1,11 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 ## vim:set ts=4 sw=4 et: -*- coding: utf-8 -*-
 #
 #  brandelf.py --
 #
 #  This file is part of the UPX executable compressor.
 #
-#  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
+#  Copyright (C) Markus Franz Xaver Johannes Oberhumer
 #  All Rights Reserved.
 #
 #  UPX and the UCL library are free software; you can redistribute them
@@ -54,39 +54,41 @@ def do_file(fn):
 
     def write(s):
         if not opts.dry_run:
-            fp.write(s)
+            fp.write(s.encode())
 
     def brand_arm(s):
-        if e_ident[4:7] != s:
-            raise Exception, "%s is not %s" % (fn, opts.bfdname)
+        if e_ident[4:7] != s.encode():
+            raise Exception("%s is not %s" % (fn, opts.bfdname))
         write("\x61") # ELFOSABI_ARM
     def brand_freebsd(s):
-        if e_ident[4:7] != s:
-            raise Exception, "%s is not %s" % (fn, opts.bfdname)
+        if e_ident[4:7] != s.encode():
+            raise Exception("%s is not %s" % (fn, opts.bfdname))
         write("\x09")
     def brand_linux(s):
-        if e_ident[4:7] != s:
-            raise Exception, "%s is not %s" % (fn, opts.bfdname)
+        if e_ident[4:7] != s.encode():
+            raise Exception("%s is not %s" % (fn, opts.bfdname))
         ##write("\x00Linux\x00\x00\x00")
         write("\x00" * 9)
     def brand_netbsd(s):
-        if e_ident[4:7] != s:
-            raise Exception, "%s is not %s" % (fn, opts.bfdname)
+        if e_ident[4:7] != s.encode():
+            raise Exception("%s is not %s" % (fn, opts.bfdname))
         write("\x02")
     def brand_openbsd(s):
-        if e_ident[4:7] != s:
-            raise Exception, "%s is not %s" % (fn, opts.bfdname)
+        if e_ident[4:7] != s.encode():
+            raise Exception("%s is not %s" % (fn, opts.bfdname))
         write("\x0c")
 
     if opts.bfdname[:3] == "elf":
-        if e_ident[:4] != "\x7f\x45\x4c\x46":
-            raise Exception, "%s is not %s" % (fn, "ELF")
+        if e_ident[:4] != "\x7f\x45\x4c\x46".encode():
+            raise Exception("%s is not %s" % (fn, "ELF"))
         fp.seek(7, 0)
         if opts.bfdname == "elf32-bigarm" and opts.elfosabi == "arm":
             brand_arm("\x01\x02\x01")
         elif opts.bfdname == "elf32-i386" and opts.elfosabi == "freebsd":
+            print ("case 4")
             brand_freebsd("\x01\x01\x01")
         elif opts.bfdname == "elf32-i386" and opts.elfosabi == "linux":
+            print ("case 5")
             brand_linux("\x01\x01\x01")
         elif opts.bfdname == "elf32-i386" and opts.elfosabi == "netbsd":
             brand_netbsd("\x01\x01\x01")
@@ -106,7 +108,7 @@ def do_file(fn):
         done = 0
     fp.close()
     if not done:
-        raise Exception, ("error: invalid args", opts.__dict__)
+        raise Exception("error: invalid args", opts.__dict__)
 
 
 def main(argv):
@@ -127,7 +129,7 @@ def main(argv):
         else: assert 0, ("getopt problem:", opt, optarg, xopts, args)
     # process arguments
     if not args:
-        raise Exception, "error: no arguments given"
+        raise Exception("error: no arguments given")
     for arg in args:
         do_file(arg)
     return 0

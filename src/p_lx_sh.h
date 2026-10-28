@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,10 +29,7 @@
    <jreiser@users.sourceforge.net>
  */
 
-
-#ifndef __UPX_P_LX_SH_H  //{
-#define __UPX_P_LX_SH_H 1
-
+#pragma once
 
 /*************************************************************************
 // linux/sh386
@@ -44,31 +41,28 @@ class PackLinuxI386sh : public PackLinuxI386
 public:
     PackLinuxI386sh(InputFile *f);
     virtual ~PackLinuxI386sh();
-    virtual int getVersion() const { return 13; }
-    virtual int getFormat() const { return UPX_F_LINUX_SH_i386; }
-    virtual const char *getName() const { return "linux.sh/i386"; }
-    virtual const char *getFullName(const options_t *) const { return "i386-linux.elf.shell"; }
-    virtual const int *getFilters() const { return NULL; }
-    virtual void buildLoader(const Filter *);
+    virtual int getVersion() const override { return 13; }
+    virtual int getFormat() const override { return UPX_F_LINUX_SH_i386; }
+    virtual const char *getName() const override { return "linux.sh/i386"; }
+    virtual const char *getFullName(const options_t *) const override { return "i386-linux.elf.shell"; }
+    virtual const int *getFilters() const override { return nullptr; }
+    virtual void buildLoader(const Filter *) override;
 
-    virtual void pack1(OutputFile *fo, Filter &ft);
-    virtual off_t pack3(OutputFile *fo, Filter &ft);
+    virtual void pack1(OutputFile *fo, Filter &ft) override;
+    virtual off_t pack3(OutputFile *fo, Filter &ft) override;
 
-    virtual bool canPack();
+    virtual tribool canPack() override;
     // virtual void unpack(OutputFile *fo) { super::unpack(fo); }
-    virtual bool canUnpackVersion(int version) const
+    virtual bool canUnpackVersion(int version) const override
         { return (version >= 11); }
 
 protected:
     virtual bool getShellName(char *buf);
 
-    virtual void patchLoader();
+    virtual void patchLoader() override;
 
     int o_shname;  // offset to name_of_shell
     int l_shname;  // length of name_of_shell
 };
-
-
-#endif /*} already included */
 
 /* vim:set ts=4 sw=4 et: */

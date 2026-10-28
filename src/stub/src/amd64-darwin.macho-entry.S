@@ -3,9 +3,9 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2020 Laszlo Molnar
-;  Copyright (C) 2000-2020 John F. Reiser
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Laszlo Molnar
+;  Copyright (C) John F. Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -98,7 +98,7 @@ SYS_open     =   5 + SYSBASE
 //0:    .word -0b + l_info
 section MACHMAINX
 _start: .globl _start
-////    int3
+    int3
         call main  // push &f_exp
 
   section MACH_UNC
@@ -117,6 +117,7 @@ decompress:  // (uchar const *src, size_t lsrc, uchar *dst, u32 &ldst, uint meth
         push ldst
         push dst
         addq src,lsrc; push lsrc  // &input_eof
+        subq src,lsrc  // restore the value of lsrc
 
 M_NRV2B_LE32=2  // ../conf.h
 M_NRV2D_LE32=5
@@ -129,13 +130,14 @@ M_NRV2E_LE32=8
 #define len  %ecx  /* XXX: 2GB */
 #define lenq %rcx
 #define bits %ebx
-#define disp %rbp
+#define displ %ebp
+#define dispq %rbp
 
         movq src,%rsi  // hardware src for movsb, lodsb
         movq dst,%rdi  // hardware dst for movsb
         xor bits,bits  // empty; force refill
         xor len,len  // create loop invariant
-        orq $(~0),disp  // -1: initial displacement
+        orq $(~0),dispq  // -1: initial displacement
         call setup  // push &getbit [TUNED]
 ra_setup:
 
@@ -155,7 +157,7 @@ ra_setup:
 #define GETBITp \
         addl bits,bits; jnz 0f; \
         movl (%rsi),bits; subq $-4,%rsi; \
-        adcl bits,bits; movb (%rsi),%dl; \
+        adcl bits,bits; movzbl (%rsi),%edx; \
 0:
 /* Same, but without prefetch (not useful for length of match.) */
 #define jnextb0n jnextb0y
@@ -179,21 +181,21 @@ getbit:
 refill:
         movl (%rsi),bits; subq $-4,%rsi  // next 32 bits; set Carry
         adcl bits,bits  // LSB= 1 (CarryIn); CarryOut= next bit
-        movb (%rsi),%dl  // speculate: literal, or bottom 8 bits of offset
+        movzbl (%rsi),%edx  // speculate: literal, or bottom 8 bits of offset
         rep; ret
 
-copy:  // In: len, %rdi, disp;  Out: 0==len, %rdi, disp;  trashes %rax, %rdx
-        leaq (%rdi,disp),%rax; cmpl $5,len  // <=3 is forced
-        movb (%rax),%dl; jbe copy1  // <=5 for better branch predict
-        cmpq $-4,disp;   ja  copy1  // 4-byte chunks would overlap
+copy:  // In: len, %rdi, dispq;  Out: 0==len, %rdi, dispq;  trashes %rax, %rdx
+        leaq (%rdi,dispq),%rax; cmpl $5,len  // <=3 is forced
+        movzbl (%rax),%edx; jbe copy1  // <=5 for better branch predict
+        cmpq $-4,dispq;  ja  copy1  // 4-byte chunks would overlap
         subl $4,len  // adjust for termination cases
 copy4:
         movl (%rax),%edx; addq $4,      %rax; subl $4,len
         movl %edx,(%rdi); leaq  4(%rdi),%rdi; jnc copy4
-        addl $4,len; movb (%rax),%dl; jz copy0
+        addl $4,len; movzbl (%rax),%edx; jz copy0
 copy1:
         addq $1,%rax; movb %dl,(%rdi); subl $1,len
-                   movb (%rax),%dl
+                   movzbl (%rax),%edx
         leaq 1(%rdi),%rdi;          jnz copy1
 copy0:
         rep; ret
@@ -218,7 +220,15 @@ setup:
 /* NRV_TAIL is empty */
 
   section MACHMAINY
+eof_lzma:
+        mov $0x1234,%ecx; jmp eof
+eof_n2b:
+eof_n2d:
+eof_n2e:
+        mov $0x5678,%ecx; jmp eof
+
 eof:
+   int3
         pop %rcx  // &input_eof
         movq %rsi,%rax; subq %rcx,%rax  // src -= eof;  // return 0: good; else: bad
         pop %rdx;       subq %rdx,%rdi  // dst -= original dst

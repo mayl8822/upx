@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,6 +34,11 @@
 #endif  /*}*/
 
 #include "include/linux.h"
+// Pprotect is mprotect, but page-aligned on the lo end (Linux requirement)
+unsigned Pprotect(void *, size_t, unsigned);
+#if defined(__mips__)  //{
+  #define Pprotect mprotect
+#endif  //}
 void *mmap(void *, size_t, int, int, int, off_t);
 #if defined(__i386__) || defined(__mips__) || defined(__powerpc__) //{
 #  define mmap_privanon(addr,len,prot,flgs) mmap((addr),(len),(prot), \
@@ -60,7 +65,7 @@ ssize_t write(int, void const *, size_t);
 // and then followed by a comma to ignore the return value.
 // The only complication is that percent and backslash
 // must be doubled in the format string, because the format
-// string is processd twice: once at compile-time by 'asm'
+// string is processed twice: once at compile-time by 'asm'
 // to produce the assembled value, and once at runtime to use it.
 #if defined(__powerpc__)  //{
 #define DPRINTF(fmt, args...) ({ \
@@ -215,8 +220,7 @@ done:
  }
 #endif  /*}*/
 
-#define MAX_ELF_HDR 512  // Elf32_Ehdr + n*Elf32_Phdr must fit in this
-
+#include "MAX_ELF_HDR.c"
 
 /*************************************************************************
 // "file" util
@@ -270,13 +274,6 @@ err_exit(int a)
     exit(127);
 }
 #endif  //}
-
-static void *
-do_brk(void *addr)
-{
-    return brk(addr);
-}
-
 
 /*************************************************************************
 // UPX & NRV stuff
@@ -337,9 +334,9 @@ ERR_LAB
                 (unsigned char *)xo->buf, &out_len,
 #if defined(__i386__) //{
                 *(int *)(void *)&h.b_method
-#else
+#else  //}{
                 h.b_method
-#endif
+#endif  //}
                 );
             if (j != 0 || out_len != (nrv_uint)h.sz_unc)
                 err_exit(7);
@@ -354,6 +351,7 @@ ERR_LAB
             xi->size -= h.sz_cpr;
         }
         else { // copy literal block
+            xi->size += sizeof(h);  // xread(xi, &h, sizeof(h)) was a peek
             xread(xi, xo->buf, h.sz_cpr);
         }
         xo->buf  += h.sz_unc;
@@ -399,7 +397,7 @@ make_hatch_x86(Elf32_Phdr const *const phdr, ptrdiff_t reloc)
                 * hatch  = escape;
             }
             if (xprot) {
-                mprotect(hatch, 1*sizeof(unsigned), PROT_EXEC|PROT_READ);
+                Pprotect(hatch, 1*sizeof(unsigned), PROT_EXEC|PROT_READ);
             }
             DPRINTF(" hatch at %%p\\n", hatch);
         }
@@ -411,6 +409,8 @@ make_hatch_x86(Elf32_Phdr const *const phdr, ptrdiff_t reloc)
 }
 #elif defined(__arm__)  /*}{*/
 extern unsigned get_sys_munmap(void);
+#define NINSTR 3
+#define NBPI 4
 
 static void *
 make_hatch_arm(
@@ -435,19 +435,19 @@ make_hatch_arm(
         // Try page fragmentation just beyond .text .
             ( (hatch = (void *)(~3u & (3+ phdr->p_memsz + phdr->p_vaddr + reloc))),
                 ( phdr->p_memsz==phdr->p_filesz  // don't pollute potential .bss
-                &&  (2*4)<=(~PAGE_MASK & -(int)hatch) ) ) // space left on page
-        // Try Elf32_Ehdr.e_ident[8..15] .  warning: 'const' cast away
-        ||   ( (hatch = (void *)(&((Elf32_Ehdr *)phdr->p_vaddr + reloc)->e_ident[8])),
-                (phdr->p_offset==0) )
+                &&  (NINSTR * NBPI)<=(~PAGE_MASK & -(int)hatch) ) ) // space left on page
         // Allocate and use a new page.
-        ||   (  xprot = 1, hatch = mmap(0, PAGE_SIZE, PROT_WRITE|PROT_READ,
+        // Linux on ARM wants PROT_EXEC or else __clear_cache does not work?
+        ||   (  xprot = 1, hatch = mmap(0, PAGE_SIZE, PROT_EXEC|PROT_WRITE|PROT_READ,
                 MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) )
         ) {
+            hatch = (unsigned *)(~3ul & (3+ (unsigned long)hatch));
             hatch[0] = sys_munmap;  // syscall __NR_unmap
-            hatch[1] = 0xe1a0f00e;  // mov pc,lr
-            __clear_cache(&hatch[0], &hatch[2]);  // ? needed before mprotect()
+            hatch[1] = 0xe8bd0003;  // pop {r0,r1}  ABI -static parameters
+            hatch[2] = 0xe1a0f00e;  // mov pc,lr
+            __clear_cache(&hatch[0], &hatch[NINSTR]);  // ? needed before Pprotect()
             if (xprot) {
-                mprotect(hatch, 2*sizeof(unsigned), PROT_EXEC|PROT_READ);
+                Pprotect(hatch, NINSTR * NBPI, PROT_EXEC|PROT_READ);
             }
         }
         else {
@@ -476,13 +476,14 @@ make_hatch_mips(
         ||   (  xprot = 1, hatch = mmap(0, PAGE_SIZE, PROT_WRITE|PROT_READ,
                 MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) )
         ) {
+            hatch = (unsigned *)(~3ul & (3+ (unsigned long)hatch));
             hatch[0]= 0x0000000c;  // syscall
 #define RS(r) ((037&(r))<<21)
 #define JR 010
             hatch[1] = RS(30)|JR;  // jr $30  # s8
             hatch[2] = 0x00000000;  //   nop
             if (xprot) {
-                mprotect(hatch, 3*sizeof(unsigned), PROT_EXEC|PROT_READ);
+                Pprotect(hatch, 3*sizeof(unsigned), PROT_EXEC|PROT_READ);
             }
         }
         else {
@@ -514,10 +515,11 @@ make_hatch_ppc32(
         ||   (  xprot = 1, hatch = mmap(0, PAGE_SIZE, PROT_WRITE|PROT_READ,
                 MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) )
         ) {
+            hatch = (unsigned *)(~3ul & (3+ (unsigned long)hatch));
             hatch[0] = 0x44000002;  // sc
             hatch[1] = 0x4e800020;  // blr
             if (xprot) {
-                mprotect(hatch, 2*sizeof(unsigned), PROT_EXEC|PROT_READ);
+                Pprotect(hatch, 2*sizeof(unsigned), PROT_EXEC|PROT_READ);
             }
         }
         else {
@@ -541,44 +543,42 @@ upx_bzero(char *p, size_t len)
 #define bzero upx_bzero
 
 
-static Elf32_auxv_t *
-#if defined(__i386__)  /*{*/
-__attribute__((regparm(2), stdcall))
-#endif  /*}*/
-auxv_find(Elf32_auxv_t *av, unsigned const type)
-{
-    Elf32_auxv_t *avail = 0;
-    if (av
-#if defined(__i386__)  /*{*/
-    && 0==(1&(int)av)  /* PT_INTERP usually inhibits, except for hatch */
-#endif  /*}*/
-    ) {
-        for (;; ++av) {
-            if (av->a_type==type)
-                return av;
-            if (av->a_type==AT_IGNORE)
-                avail = av;
-        }
-        if (0!=avail && AT_NULL!=type) {
-                av = avail;
-                av->a_type = type;
-                return av;
-        }
-    }
-    return 0;
-}
-
-
 static void
 #if defined(__i386__)  /*{*/
 __attribute__((regparm(3), stdcall))
 #endif  /*}*/
-auxv_up(Elf32_auxv_t *av, unsigned const type, unsigned const value)
+auxv_up(Elf32_auxv_t *av, unsigned const tag, uint32_t const value)
 {
-    DPRINTF("auxv_up  %%p %%x %%x\\n",av,type,value);
-    av = auxv_find(av, type);
-    if (av) {
-        av->a_un.a_val = value;
+    if (!av || (1& (size_t)av)) { // none, or inhibited for PT_INTERP
+        return;
+    }
+    DPRINTF("\\nauxv_up %%d  %%p\\n", tag, value);
+    // Multiple slots can have 'tag' which wastes space but is legal.
+    // rtld (ld-linux) uses the last one, so we must scan the whole table.
+    Elf32_auxv_t *ignore_slot = 0;
+    int found = 0;
+    for (;; ++av) {
+        DPRINTF("  %%d  %%p\\n", av->a_type, av->a_un.a_val);
+        if (av->a_type == tag) {
+            av->a_un.a_val = value;
+            ++found;
+        }
+        else if (av->a_type == AT_IGNORE) {
+            ignore_slot = av;
+        }
+        if (av->a_type==AT_NULL) { // done scanning
+            if (found) {
+                return;
+            }
+            if (ignore_slot) {
+                ignore_slot->a_type = tag;
+                ignore_slot->a_un.a_val = value;
+                return;
+            }
+            err_exit(20);
+ERR_LAB
+            return;
+        }
     }
 }
 
@@ -595,14 +595,8 @@ auxv_up(Elf32_auxv_t *av, unsigned const type, unsigned const value)
         ) >> ((pf & (PF_R|PF_W|PF_X))<<2) ))
 
 
-#if defined(__powerpc__)  //{
 extern
 size_t get_page_mask(void);  // variable page size AT_PAGESZ; see *-fold.S
-#elif defined(__mips__)  //}{
-    // empty
-#else  //}{  // FIXME for __mips__
-size_t get_page_mask(void) { return PAGE_MASK; }  // compile-time constant
-#endif  //}
 
 // Find convex hull of PT_LOAD (the minimal interval which covers all PT_LOAD),
 // and mmap that much, to be sure that a kernel using exec-shield-randomize
@@ -667,34 +661,44 @@ do_xmap(int const fdi, Elf32_Ehdr const *const ehdr, Extent *const xi,
 #else  //}{
     unsigned const frag_mask = ~get_page_mask();
 #endif  //}
-    Elf32_Phdr const *phdr = (Elf32_Phdr const *) (ehdr->e_phoff +
-        (void const *)ehdr);
+    Elf32_Phdr const *phdr = (Elf32_Phdr const *)(void const *)(ehdr->e_phoff +
+        (char const *)ehdr);
     Elf32_Addr v_brk;
-
-    ptrdiff_t reloc = xfind_pages(((ET_EXEC==ehdr->e_type) ? MAP_FIXED : 0),
-         phdr, ehdr->e_phnum, &v_brk
+    Elf32_Addr reloc;
+    if (xi) { // compressed main program:
+        // C_BASE space reservation, C_TEXT compressed data and stub
+        Elf32_Addr  ehdr0 = *p_reloc;  // the 'hi' copy!
+        Elf32_Phdr *phdr0 = (Elf32_Phdr *)(1+ (Elf32_Ehdr *)ehdr0);  // cheats .e_phoff
+        // Clear the 'lo' space reservation for use by PT_LOADs
+        if (ET_EXEC==((Elf32_Ehdr *)ehdr0)->e_type) {
+            ehdr0 = phdr0[0].p_vaddr;
+            reloc = 0;
+        }
+        else {
+            ehdr0 -= phdr0[1].p_vaddr;
+            reloc = ehdr0;
+        }
+        v_brk = phdr0->p_memsz + ehdr0;
+    }
+    else { // PT_INTERP
+        reloc = xfind_pages(
+            ((ET_DYN!=ehdr->e_type) ? MAP_FIXED : 0), phdr, ehdr->e_phnum, &v_brk
 #if defined(__mips__)  //{
          , page_mask
 #endif  //}
-         );
+        );
+    }
 
-#if DEBUG &&!defined(__mips__)  //{
-    size_t const page_mask = 0;
-#endif  //}
     DPRINTF("do_xmap  fdi=%%x  ehdr=%%p  xi=%%p(%%x %%p)\\n"
-          "  av=%%p  page_mask=%%p  reloc=%%p  p_reloc=%%p/%%p  f_unf=%%p\\n",
+          "  av=%%p  frag_mask=%%p  reloc=%%p  p_reloc=%%p/%%p  f_unf=%%p\\n",
         fdi, ehdr, xi, (xi? xi->size: 0), (xi? xi->buf: 0),
-        av, page_mask, reloc, p_reloc, *p_reloc, f_unf);
+        av, frag_mask, reloc, p_reloc, *p_reloc, f_unf);
     int j;
     for (j=0; j < ehdr->e_phnum; ++phdr, ++j)
     if (xi && PT_PHDR==phdr->p_type) {
         auxv_up(av, AT_PHDR, phdr->p_vaddr + reloc);
     } else
-    if (PT_LOAD==phdr->p_type
-#if defined(__arm__)  /*{*/
-         &&  phdr->p_memsz
-#endif  /*}*/
-        ) {
+    if (PT_LOAD==phdr->p_type && phdr->p_memsz != 0) {
         if (xi && !phdr->p_offset /*&& ET_EXEC==ehdr->e_type*/) { // 1st PT_LOAD
             // ? Compressed PT_INTERP must not overwrite values from compressed a.out?
             auxv_up(av, AT_PHDR, phdr->p_vaddr + reloc + ehdr->e_phoff);
@@ -722,8 +726,17 @@ do_xmap(int const fdi, Elf32_Ehdr const *const ehdr, Extent *const xi,
 #  define LEN_OVER 0
 #endif  /*}*/
 
-        if (xi) { // compresed source: mprotect(,,prot) later
+        DPRINTF("    prot=%%x\n",
+#if defined(__arm__)  //{
+                    ((PF_X & phdr->p_flags) ? PROT_EXEC : 0) |
+#endif  //}
+                    PROT_WRITE | PROT_READ);
+
+        if (xi) { // compressed source: Pprotect(,,prot) later
             if (addr != mmap_privanon(addr, LEN_OVER + mlen,
+#if defined(__arm__)  //{
+                    ((PF_X & phdr->p_flags) ? PROT_EXEC : 0) |
+#endif  //}
                     PROT_WRITE | PROT_READ, MAP_FIXED) )
                 err_exit(6);
             unpackExtent(xi, &xo, (f_expand *)fdi,
@@ -767,7 +780,7 @@ do_xmap(int const fdi, Elf32_Ehdr const *const ehdr, Extent *const xi,
                 auxv_up(av, AT_NULL, (unsigned)hatch);
             }
 #endif  /*}*/
-            if (0!=mprotect(addr, mlen, prot)) {
+            if (0!=Pprotect(addr, mlen, prot)) {
                 err_exit(10);
 ERR_LAB
             }
@@ -791,7 +804,8 @@ ERR_LAB
     }
     if (xi && ET_DYN!=ehdr->e_type) {
         // Needed only if compressed shell script invokes compressed shell.
-        do_brk((void *)v_brk);
+        // Besides, fold.S needs _Ehdr that is tossed
+        // do_brk((void *)v_brk);
     }
     if (0!=p_reloc) {
         *p_reloc = reloc;
@@ -889,7 +903,7 @@ void *upx_main(
 #endif  //}
 
 #if !defined(__mips__) && !defined(__powerpc__)  /*{*/
-    Elf32_Ehdr *const ehdr = (Elf32_Ehdr *)(void *)xo.buf;  // temp char[MAX_ELF_HDR+OVERHEAD]
+    Elf32_Ehdr *const ehdr = (Elf32_Ehdr *)(void *)xo.buf;  // temp char[MAX_ELF_HDR_32+OVERHEAD]
     // sizeof(Ehdr+Phdrs),   compressed; including b_info header
     size_t const sz_first = xi.size;
 #endif  /*}*/
@@ -908,9 +922,9 @@ void *upx_main(
     xj.buf = CONST_CAST(char *, bi); xj.size = sizeof(*bi) + bi->sz_cpr;
 #endif  //}
 
-    DPRINTF("upx_main av=%%p  szc=%%x  f_exp=%%p  f_unf=%%p  "
+    DPRINTF("upx_main@%%p av=%%p  szc=%%x  f_exp=%%p  f_unf=%%p  "
             "  xo=%%p(%%x %%p)  xi=%%p(%%x %%p)  elfaddr=%%x\\n",
-        av, sz_compressed, f_exp, f_unf, &xo, xo.size, xo.buf,
+        upx_main, av, sz_compressed, f_exp, f_unf, &xo, xo.size, xo.buf,
         &xi, xi.size, xi.buf, elfaddr);
 
 #if defined(__mips__)  //{
@@ -924,7 +938,7 @@ void *upx_main(
     xi.size  = sz_compressed;
 #endif  // !__mips__ }
 
-    Elf32_Addr reloc = elfaddr;
+    Elf32_Addr reloc = elfaddr;  // ET_EXEC problem!
     DPRINTF("upx_main1  .e_entry=%%p  reloc=%%p\\n", ehdr->e_entry, reloc);
     Elf32_Phdr *phdr = (Elf32_Phdr *)(1+ ehdr);
 
@@ -945,7 +959,7 @@ void *upx_main(
         if (0 > fdi) {
             err_exit(18);
         }
-        if (MAX_ELF_HDR!=read(fdi, (void *)ehdr, MAX_ELF_HDR)) {
+        if (MAX_ELF_HDR_32!=read(fdi, (void *)ehdr, MAX_ELF_HDR_32)) {
 ERR_LAB
             err_exit(19);
         }

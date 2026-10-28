@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -34,11 +34,22 @@
 #endif
         jmp top_n2d
 
+#undef EOF
+#ifdef WINDOWS_BACK
+  #define EOF eofd
+#else
+  #define EOF eof_n2d
+#endif
+
 lit_n2d:
         incq %rsi; movb %dl,(%rdi)
         incq %rdi
 top_n2d:
+#ifdef WINDOWS_BACK
         movb (%rsi),%dl  // speculate: literal, or bottom 8 bits of offset
+#else
+        movzbl (%rsi),%edx  // speculate: literal, or bottom 8 bits of offset
+#endif
         jnextb1yp lit_n2d
         lea 1(lenq),off  // [len= 0] off= 1
         jmp getoff_n2d
@@ -51,11 +62,17 @@ getoff_n2d:
         jnextb0np off_n2d
 
         subl $ 3,off; jc offprev_n2d
+#ifdef WINDOWS_BACK
         shll $ 8,off; movzbl %dl,%edx
         orl %edx,off; incq %rsi
         xorl $~0,off; jz eof
+#else
+        shll $ 8,off; incq %rsi
+        orl %edx,off
+        xorl $~0,off; jz EOF
+#endif
         sarl     off  // Carry= original low bit
-        movslq   off,disp  // XXX: 2GB
+        movslq   off,dispq  // XXX: 2GB
         jmp len_n2d-2  // CHEAT: assume tail of getnextb is "adcl len,len"
 offprev_n2d:
         getnextb(len)
@@ -67,7 +84,7 @@ lenmore_n2d:
         jnextb0n lenmore_n2d
         addl $2,len
 gotlen_n2d:
-        cmpq $-0x500,disp
+        cmpq $-0x500,dispq
         adcl $1,len  // len += 1+ (disp < -0x500);
         call copy
 bot_n2d:  // In: 0==len
@@ -77,7 +94,7 @@ bot_n2d:  // In: 0==len
 not_n2d:
         push %rdi; pop %rsi  # src = arg1
 #endif
-
+        // fall into daisy chain
 /*
 vi:ts=8:et:nowrap
 */

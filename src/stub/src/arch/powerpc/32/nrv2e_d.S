@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -80,8 +80,9 @@ get32:
         addi src,src,4
 #endif  /*}*/
 
-        cmpl    0,bits,hibit  // cr0  for   jnextb
-        addc bits,bits,bits  // CArry for getnextb
+        ori t1,bits,1  // loaded bits might equal hibit; we want 'bgt' to succeed
+        cmpl  cr0,t1,hibit  // cr0  for   jnextb
+        addc bits,bits,bits  // Carry for getnextb
         ori  bits,bits,1  // the flag bit
         ret
 
@@ -103,12 +104,12 @@ getoff_n2e:
         jnextb0n off_n2e
 
         li len,0
-        addic. off,off,-3  // CArry set [and ignored], but no 'addi.'
+        addic. off,off,-3  // Carry set [and ignored], but no 'addi.'
         slwi off,off,8  // off<<=8;
         blt- offprev_n2e
         lbzu t1,1(src)
         nor. disp,off,t1  // disp = -(1+ (off|t1));
-        srawi disp,disp,1  // shift off low bit (sets CArry; ignored)
+        srawi disp,disp,1  // shift off low bit (sets Carry; ignored)
         beq- eof_nrv
         andi. t1,t1,1  // complement of low bit of unshifted disp
         beq+ lenlast_n2e // low bit was 1
@@ -129,7 +130,7 @@ lenlast_n2e:
         getnextb(len)  // 0,1,2,3
 gotlen_n2e:
 #define tmp off
-        subfic tmp,disp,(~0)+(-0x500)  // want CArry only
+        subfic tmp,disp,(~0)+(-0x500)  // want Carry only
 #undef tmp
         addi  len,len,2
         addze len,len  // len += (disp < -0x500);

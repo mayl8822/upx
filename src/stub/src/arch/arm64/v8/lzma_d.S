@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,29 +30,27 @@
 */
 
 #include "macros.S"
+lr .req x30
+fp .req x29
 
 #define section .section
 NBPW= 8
 
   section LZMA_ELF00
+lzma_decode:
 //decompress:  // (uchar const *src, size_t lsrc, uchar *dst, u32 &ldst, uint method)
 /* Arguments according to calling convention */
-src .req x0
-#define lsrc w1
-dst .req x2
-#define ldst x3  /* Out: actually a reference: &len_dst */
-#define meth w4
+src  .req x0
+lsrc .req w1
+dst  .req x2
+ldst .req x3  /* Out: actually a reference: &len_dst */
 
-#define M_LZMA          14
-        cmp meth,#M_LZMA; bne not_lzma
+t0   .req w7
+t1   .req w8
+t1x  .req x8
 
-#define t0  w7
-#define t1  w8
-#define t1x x8
-
-fp .req x29
-        PUSH4(x2,x3, fp,lr)  // dst,ldst, fp,lr
-        mov fp,sp
+        PUSH4(x2,x3, fp,lr)  // MATCH_94  dst,ldst, fp,lr
+        mov fp,sp  // we use alloca (inlined and zeroed)
 
 #define LZMA_BASE_SIZE 1846
 #define LZMA_LIT_SIZE   768
@@ -66,19 +64,28 @@ fp .req x29
 
         mov t1x,sp
         sub sp,sp,t0,uxtw
+#ifdef WINDOWS_BACK
+        // Descending stores probe Windows stack guard pages like amd64's push loop.
         mov x4,sp
 1:  // clear lzma probability array
-        stp xzr,xzr,[x4],#2*8
+        stp xzr,xzr,[t1x,#-2*NBPW]!
+        cmp t1x,x4
+        bhi 1b
+#else
+        mov x4,sp
+1:  // clear lzma probability array
+        stp xzr,xzr,[x4],#2*NBPW
         cmp x4,t1x
         blo 1b
+#endif
 
-#define a0 x0  /* &CLzmaDecoderState */
-#define a1 x1  /* inp */
-#define a2 w2  /* inSize */
-#define a3 x3  /* &inSizeProcessed */
-#define a4 x4  /* outp */
-#define a5 w5  /* outSize */
-#define a6 x6  /* &outSizeProcessed */
+a0 .req x0  /* &CLzmaDecoderState */
+a1 .req x1  /* inp */
+a2 .req w2  /* inSize */
+a3 .req x3  /* &inSizeProcessed */
+a4 .req x4  /* outp */
+a5 .req w5  /* outSize */
+a6 .req x6  /* &outSizeProcessed */
 //The target is:
 //LzmaDecode(  // from lzmaSDK/C/7zip/Compress/LZMA_C/LzmaDecode.h
 //      a0= &CLzmaDecoderState,
@@ -90,7 +97,7 @@ fp .req x29
         mov a6,ldst  // &outSizeProcessed
         ldr a5,[a6]  // outSize
         mov a4,dst  // outp
-        add a3,sp,#8  // &inSizeProcessed
+        add a3,sp,#NBPW  // &inSizeProcessed
         sub w2,lsrc,#2  // inSize
         mov a1,src  // inp
 State= 0
@@ -104,23 +111,25 @@ State= 0
         strb t1,[a0,#1]
         and  t0,t0,#0xf  // lib_context_bits
         strb t0,[a0,#0]
-        bl 1f  // the call
+        bl ClangLzmaDecode  // the call
+        mov sp,fp  // undo inlined alloca
 
+#if defined(WINDOWS_BACK) || !defined(DAISY_CHAIN)  //{
 eof_lzma:
-        mov sp,fp
-        mov x4,x0  // save result value
-        POP4(x0,x1, fp,lr)  // x0= orig_dst; x1= plen_dst
+        mov x5,x0  // save result value
+        POP4(x0,x1, fp,lr)  // MATCH_94  x0= orig_dst; x1= plen_dst
+#ifndef NO_SYNC_CACHE
         ldr x1,[x1]  // outSizeProcessed
 
         add x1,x1,x0  // last
-cache_lzma:
-        dc cvau,x0  // Clean by VA to point of Unification
-        ic ivau,x0  // Invalidate by VA to point of Unification
-        add x0,x0,#64  // next line
-        cmp x0,x1; blo cache_lzma
+        sync_cache  // x0= lo; x1= hi; uses x2-x4
+#endif
 
-        mov x0,x4  // result value
+        mov x0,x5  // result value
         ret
+#else  //}{
+        b eof_lzma
+#endif  //}
 
 #undef t0
 #undef t1
@@ -128,20 +137,29 @@ cache_lzma:
 
 #undef lsrc
 #undef ldst
-#undef meth
 
-#undef a0
-#undef a1
-#undef a2
-#undef a3
-#undef a4
-#undef a5
-#undef a6
+    .unreq src
+    .unreq lsrc
+    .unreq dst
+    .unreq ldst
+    .unreq t0
+    .unreq t1
+    .unreq t1x
+    .unreq a0
+    .unreq a1
+    .unreq a2
+    .unreq a3
+    .unreq a4
+    .unreq a5
+    .unreq a6
 
-1:  // entry to C-lang LzmaDecode
-
+ClangLzmaDecode:  // entry to C-lang LzmaDecode in next section
   section LZMA_DEC20
+#ifdef WINDOWS_BACK
+#include "lzma_d_cf_win64.S"
+#else
 #include "lzma_d_cf.S"
+#endif
 
   section LZMA_DEC10
 #if 0  /*{*/
@@ -152,8 +170,6 @@ cache_lzma:
 #endif  /*}*/
 
   section LZMA_DEC30
-
-not_lzma:
+not_lzma:  // fall into daisy chain
 
 // vi:ts=8:et
-

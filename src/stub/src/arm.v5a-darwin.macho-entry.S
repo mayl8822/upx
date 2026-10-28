@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -49,8 +49,6 @@
 
 NBPW= 4
 #include "arch/arm/v5a/macros.S"
-
-#define bkpt .long 0xe1200070
 
 sz_b_info= 12
   sz_unc= 0
@@ -277,7 +275,7 @@ hex:
 execp:
         .ascii "executable_path="  // 16 bytes
 L99:
-        bkpt
+        bkpt  // FIXME
 
 main:  // lr= &f_exp;  r7= &argc; r6= -2*NBPW + _start
         mov r_EXP,lr  // &f_decompress

@@ -7,63 +7,85 @@ Name             Origin             Length             Attributes
 Linker script and memory map
 
 TARGET(elf64-powerpc)
-                0x00000000001000bc                . = ((0x100000 + SIZEOF_HEADERS) + 0xc)
-
-.text           0x00000000001000bc      0xb04
- *(.text)
- .text          0x00000000001000bc      0x30c tmp/powerpc64-linux.elf-fold.o
-                0x00000000001000bc                get_page_mask
-                0x0000000000100368                mmap
-                0x0000000000100380                exit
-                0x0000000000100388                brk
-                0x0000000000100390                readlink
-                0x0000000000100398                read
-                0x00000000001003a0                open
-                0x00000000001003a8                close
-                0x00000000001003b0                mprotect
-                0x00000000001003b8                munmap
-                0x00000000001003c0                my_bkpt
- .text          0x00000000001003c8      0x7f8 tmp/powerpc64-linux.elf-main.o
- *(.data)
- .data          0x0000000000100bc0        0x0 tmp/powerpc64-linux.elf-fold.o
- .data          0x0000000000100bc0        0x0 tmp/powerpc64-linux.elf-main.o
-
-.sfpr           0x0000000000100bc0       0xa4
- .sfpr          0x0000000000100bc0       0xa4 linker stubs
-                0x0000000000100bc0                _savegpr0_14
-                0x0000000000100be8                _savegpr0_24
-                0x0000000000100bf8                _savegpr0_28
-                0x0000000000100c10                _restgpr0_14
-                0x0000000000100c38                _restgpr0_24
-                0x0000000000100c48                _restgpr0_28
-
-.glink          0x0000000000100c68        0x0
- .glink         0x0000000000100c68        0x0 linker stubs
-
-.eh_frame       0x0000000000100c64        0x0
- .eh_frame      0x0000000000100c64        0x0 linker stubs
-
-.rela.dyn       0x0000000000100c68        0x0
- .rela.iplt     0x0000000000100c68        0x0 linker stubs
-
-.data
+                0x0000000000000040                . = SIZEOF_HEADERS
 LOAD tmp/powerpc64-linux.elf-fold.o
-LOAD tmp/powerpc64-linux.elf-main.o
 OUTPUT(tmp/powerpc64-linux.elf-fold.bin elf64-powerpc)
 
-.branch_lt      0x0000000000100c68        0x0
- .branch_lt     0x0000000000100c68        0x0 linker stubs
+.text           0x0000000000000000     0x1030
+ .text          0x0000000000000000     0x1030 tmp/powerpc64-linux.elf-fold.o
+                0x0000000000000014                get_page_mask
+                0x000000000000002c                Pprotect
+                0x0000000000000050                Psync
+                0x000000000000009c                Pmap
+                0x00000000000000c0                Punmap
+                0x00000000000005cc                underlay
+                0x0000000000000658                xfind_pages
+                0x0000000000000e90                upx_main2
 
-.toc            0x0000000000100c68        0x0
- .toc           0x0000000000100c68        0x0 tmp/powerpc64-linux.elf-main.o
+.data           0x0000000000000000        0x0
+ .data          0x0000000000000000        0x0 tmp/powerpc64-linux.elf-fold.o
 
-.opd            0x0000000000100c68       0x58
- .opd           0x0000000000100c68       0x58 tmp/powerpc64-linux.elf-main.o
-                0x0000000000100ca8                upx_main
+.bss            0x0000000000000000        0x0
+ .bss           0x0000000000000000        0x0 tmp/powerpc64-linux.elf-fold.o
 
-.iplt           0x0000000000100cc0        0x0
- .iplt          0x0000000000100cc0        0x0 linker stubs
+SYSCALLS        0x0000000000000000      0x15c
+ SYSCALLS       0x0000000000000000      0x15c tmp/powerpc64-linux.elf-fold.o
+                0x0000000000000008                mmap
+                0x0000000000000020                munmap
+                0x0000000000000028                mprotect
+                0x0000000000000030                msync
+                0x0000000000000038                ftruncate
+                0x0000000000000040                exit
+                0x0000000000000048                brk
+                0x0000000000000050                readlink
+                0x0000000000000058                write
+                0x0000000000000060                read
+                0x0000000000000068                open
+                0x0000000000000070                openat64
+                0x0000000000000070                openat
+                0x0000000000000078                close
+                0x0000000000000080                upxfd_create
+                0x00000000000000ec                memfd_create
+                0x0000000000000130                memcpy
+                0x0000000000000154                my_bkpt
 
-.bss            0x0000000000100cc0        0x0
- .bss           0x0000000000100cc0        0x0 tmp/powerpc64-linux.elf-fold.o
- .bss           0x0000000000100cc0        0x0 tmp/powerpc64-linux.elf-main.o
+.comment        0x0000000000000000       0x33
+ .comment       0x0000000000000000       0x33 tmp/powerpc64-linux.elf-fold.o
+
+.note.GNU-stack
+                0x0000000000000000        0x0
+ .note.GNU-stack
+                0x0000000000000000        0x0 tmp/powerpc64-linux.elf-fold.o
+
+EXP_HEAD        0x0000000000000000       0xac
+ EXP_HEAD       0x0000000000000000       0xac tmp/powerpc64-linux.elf-fold.o
+                0x0000000000000000                f_expand
+
+EXP_TAIL        0x0000000000000000       0x8c
+ EXP_TAIL       0x0000000000000000       0x8c tmp/powerpc64-linux.elf-fold.o
+                0x0000000000000008                eof_nrv
+                0x000000000000008c                upx_mmap_and_fd
+
+NRV2E           0x0000000000000000      0x15c
+ NRV2E          0x0000000000000000      0x15c tmp/powerpc64-linux.elf-fold.o
+
+NRV2D           0x0000000000000000      0x144
+ NRV2D          0x0000000000000000      0x144 tmp/powerpc64-linux.elf-fold.o
+
+NRV2B           0x0000000000000000      0x100
+ NRV2B          0x0000000000000000      0x100 tmp/powerpc64-linux.elf-fold.o
+
+LZMA_DAISY      0x0000000000000000        0x8
+ LZMA_DAISY     0x0000000000000000        0x8 tmp/powerpc64-linux.elf-fold.o
+
+LZMA_ELF00      0x0000000000000000       0x98
+ LZMA_ELF00     0x0000000000000000       0x98 tmp/powerpc64-linux.elf-fold.o
+
+LZMA_DEC30      0x0000000000000000       0x30
+ LZMA_DEC30     0x0000000000000000       0x30 tmp/powerpc64-linux.elf-fold.o
+
+LZMA_DEC10      0x0000000000000000      0xbb8
+ LZMA_DEC10     0x0000000000000000      0xbb8 tmp/powerpc64-linux.elf-fold.o
+
+LZMA_DEC20      0x0000000000000000      0xc6c
+ LZMA_DEC20     0x0000000000000000      0xc6c tmp/powerpc64-linux.elf-fold.o

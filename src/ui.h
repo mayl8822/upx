@@ -1,9 +1,9 @@
-/* ui.h --
+/* ui.h -- User Interface
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,24 +25,19 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-#ifndef __UPX_UI_H
-#define __UPX_UI_H 1
+#pragma once
 
-class InputFile;
 class OutputFile;
-class Packer;
-class UiPacker;
+class PackerBase;
 
 /*************************************************************************
 //
 **************************************************************************/
 
-class UiPacker {
+class UiPacker /*not_final*/ {
 public:
-    UiPacker(const Packer *p_);
-
-public:
-    virtual ~UiPacker();
+    explicit noinline UiPacker(const PackerBase *);
+    virtual ~UiPacker() noexcept;
 
     static void uiConfirmUpdate();
     static void uiPackTotal();
@@ -51,7 +46,6 @@ public:
     static void uiTestTotal();
     static void uiFileInfoTotal();
 
-public:
     virtual void uiPackStart(const OutputFile *fo);
     virtual void uiPackEnd(const OutputFile *fo);
     virtual void uiUnpackStart(const OutputFile *fo);
@@ -73,31 +67,30 @@ public:
     virtual upx_callback_t *getCallback() { return &cb; }
 
 protected:
-    static void __acc_cdecl progress_callback(upx_callback_p cb, unsigned, unsigned);
+    static void __acc_cdecl progress_callback(upx_callback_t *, unsigned, unsigned);
     virtual void doCallback(unsigned isize, unsigned osize);
 
-protected:
-    virtual void uiUpdate(off_t fc_len = -1, off_t fu_len = -1);
+    virtual void uiUpdate(upx_off_t fc_len = -1, upx_off_t fu_len = -1);
 
 public:
     static void uiHeader();
     static void uiFooter(const char *n);
 
-    int ui_pass;
-    int ui_total_passes;
+    int ui_pass = 0;
+    int ui_total_passes = 0;
 
 protected:
     virtual void printInfo(int nl = 0);
-    const Packer *p;
+    const PackerBase *const pb; // reference, required
 
     // callback
-    upx_callback_t cb;
+    upx_callback_t cb = {};
 
     // internal state
     struct State;
-    State *s;
+    OwningPointer(State) s = nullptr; // owner
 
-    // totals
+    // static totals
     static unsigned total_files;
     static unsigned total_files_done;
     static upx_uint64_t total_c_len;
@@ -108,8 +101,10 @@ protected:
     static unsigned update_u_len;
     static unsigned update_fc_len;
     static unsigned update_fu_len;
-};
 
-#endif /* already included */
+private: // UPX conventions
+    UPX_CXX_DISABLE_ADDRESS(UiPacker)
+    UPX_CXX_DISABLE_COPY_MOVE(UiPacker)
+};
 
 /* vim:set ts=4 sw=4 et: */

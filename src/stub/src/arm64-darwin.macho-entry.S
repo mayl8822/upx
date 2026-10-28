@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -108,6 +108,8 @@ f_decompress:
 
   section NRV_HEAD
         // empty
+
+#define NO_METHOD_CHECK 1
 
   section NRV2E
 #include "arch/arm64/v8/nrv2e_d32.S"

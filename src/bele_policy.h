@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,36 +25,32 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
-#ifndef __UPX_BELE_H
-#  error "this is an internal include file"
-#endif
-
+// this is an internal include file private to bele.h
 
 /*************************************************************************
 //
 **************************************************************************/
 
 #if defined(BELE_CTP)
-   // CTP - Compile-Time Polymorphism (templates)
-#  define V     static inline
-#  define S     static int __acc_cdecl_qsort
-#  define C     /*empty*/
+// CTP - Compile-Time Polymorphism (templates)
+#define V  static inline bele_constexpr
+#define VV static forceinline_constexpr
+#define S  static int __acc_cdecl_qsort
+#define C  noexcept
 #elif defined(BELE_RTP)
-   // RTP - Run-Time Polymorphism (virtual functions)
-#  define V     virtual
-#  define S     virtual int
-#  define C     const
+// RTP - Run-Time Polymorphism (virtual functions)
+#define V  virtual
+#define VV virtual
+#define S  virtual int
+#define C  const noexcept
 #else
-#  error
+#error
 #endif
 
-
 #if defined(BELE_RTP)
-struct AbstractPolicy
-{
-    inline AbstractPolicy() { }
-    virtual inline ~AbstractPolicy() { }
+struct AbstractPolicy {
+    explicit inline AbstractPolicy() noexcept = default;
+    virtual inline ~AbstractPolicy() noexcept {}
     V bool isBE() C = 0;
     V bool isLE() C = 0;
 
@@ -68,10 +64,10 @@ struct AbstractPolicy
     V void set32(void *p, unsigned v) C = 0;
     V void set64(void *p, upx_uint64_t v) C = 0;
 
-    V unsigned get16_signed(const void *p) C = 0;
-    V unsigned get24_signed(const void *p) C = 0;
-    V unsigned get32_signed(const void *p) C = 0;
-    V upx_uint64_t get64_signed(const void *p) C = 0;
+    V int get16_signed(const void *p) C = 0;
+    V int get24_signed(const void *p) C = 0;
+    V int get32_signed(const void *p) C = 0;
+    V upx_int64_t get64_signed(const void *p) C = 0;
 
     S u16_compare(const void *a, const void *b) C = 0;
     S u24_compare(const void *a, const void *b) C = 0;
@@ -83,76 +79,63 @@ struct AbstractPolicy
     S u32_compare_signed(const void *a, const void *b) C = 0;
     S u64_compare_signed(const void *a, const void *b) C = 0;
 
+private:
+    // disable copy and move
+    UPX_CXX_DISABLE_COPY_MOVE(AbstractPolicy)
     // disable dynamic allocation
-    DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(AbstractPolicy)
 };
 #endif
 
+#if defined(BELE_RTP)
+#undef C
+#define C const noexcept override
+#endif
 
-struct BEPolicy
+struct BEPolicy final
 #if defined(BELE_RTP)
     : public AbstractPolicy
 #endif
 {
-    inline BEPolicy() { }
+    explicit inline BEPolicy() noexcept = default;
 #if defined(BELE_CTP)
     typedef N_BELE_RTP::BEPolicy RTP_Policy;
 #elif defined(BELE_RTP)
     typedef N_BELE_CTP::BEPolicy CTP_Policy;
 #endif
-    V bool isBE() C { return true; }
-    V bool isLE() C { return false; }
+    VV bool isBE() C { return true; }
+    VV bool isLE() C { return false; }
 
     typedef BE16 U16;
     typedef BE32 U32;
     typedef BE64 U64;
 
-    V unsigned get16(const void *p) C
-        { return get_be16(p); }
-    V unsigned get24(const void *p) C
-        { return get_be24(p); }
-    V unsigned get32(const void *p) C
-        { return get_be32(p); }
-    V upx_uint64_t get64(const void *p) C
-        { return get_be64(p); }
+    V unsigned get16(const void *p) C { return get_be16(p); }
+    V unsigned get24(const void *p) C { return get_be24(p); }
+    V unsigned get32(const void *p) C { return get_be32(p); }
+    V upx_uint64_t get64(const void *p) C { return get_be64(p); }
 
-    V void set16(void *p, unsigned v) C
-        { set_be16(p, v); }
-    V void set24(void *p, unsigned v) C
-        { set_be24(p, v); }
-    V void set32(void *p, unsigned v) C
-        { set_be32(p, v); }
-    V void set64(void *p, upx_uint64_t v) C
-        { set_be64(p, v); }
+    V void set16(void *p, unsigned v) C { set_be16(p, v); }
+    V void set24(void *p, unsigned v) C { set_be24(p, v); }
+    V void set32(void *p, unsigned v) C { set_be32(p, v); }
+    V void set64(void *p, upx_uint64_t v) C { set_be64(p, v); }
 
-    V unsigned get16_signed(const void *p) C
-        { return get_be16_signed(p); }
-    V unsigned get24_signed(const void *p) C
-        { return get_be24_signed(p); }
-    V unsigned get32_signed(const void *p) C
-        { return get_be32_signed(p); }
-    V upx_uint64_t get64_signed(const void *p) C
-        { return get_be64_signed(p); }
+    V int get16_signed(const void *p) C { return get_be16_signed(p); }
+    V int get24_signed(const void *p) C { return get_be24_signed(p); }
+    V int get32_signed(const void *p) C { return get_be32_signed(p); }
+    V upx_int64_t get64_signed(const void *p) C { return get_be64_signed(p); }
 
-    S u16_compare(const void *a, const void *b) C
-        { return be16_compare(a, b); }
-    S u24_compare(const void *a, const void *b) C
-        { return be24_compare(a, b); }
-    S u32_compare(const void *a, const void *b) C
-        { return be32_compare(a, b); }
-    S u64_compare(const void *a, const void *b) C
-        { return be64_compare(a, b); }
+    S u16_compare(const void *a, const void *b) C { return be16_compare(a, b); }
+    S u24_compare(const void *a, const void *b) C { return be24_compare(a, b); }
+    S u32_compare(const void *a, const void *b) C { return be32_compare(a, b); }
+    S u64_compare(const void *a, const void *b) C { return be64_compare(a, b); }
 
-    S u16_compare_signed(const void *a, const void *b) C
-        { return be16_compare_signed(a, b); }
-    S u24_compare_signed(const void *a, const void *b) C
-        { return be24_compare_signed(a, b); }
-    S u32_compare_signed(const void *a, const void *b) C
-        { return be32_compare_signed(a, b); }
-    S u64_compare_signed(const void *a, const void *b) C
-        { return be64_compare_signed(a, b); }
+    S u16_compare_signed(const void *a, const void *b) C { return be16_compare_signed(a, b); }
+    S u24_compare_signed(const void *a, const void *b) C { return be24_compare_signed(a, b); }
+    S u32_compare_signed(const void *a, const void *b) C { return be32_compare_signed(a, b); }
+    S u64_compare_signed(const void *a, const void *b) C { return be64_compare_signed(a, b); }
 
-    static void compileTimeAssertions() {
+    static void compileTimeAssertions() noexcept {
         COMPILE_TIME_ASSERT(sizeof(U16) == 2)
         COMPILE_TIME_ASSERT(sizeof(U32) == 4)
         COMPILE_TIME_ASSERT(sizeof(U64) == 8)
@@ -161,75 +144,57 @@ struct BEPolicy
         COMPILE_TIME_ASSERT_ALIGNED1(U64)
     }
 
+private:
+    // disable copy and move
+    UPX_CXX_DISABLE_COPY_MOVE(BEPolicy)
     // disable dynamic allocation
-    DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(BEPolicy)
 };
 
-
-struct LEPolicy
+struct LEPolicy final
 #if defined(BELE_RTP)
     : public AbstractPolicy
 #endif
 {
-    inline LEPolicy() { }
+    explicit inline LEPolicy() noexcept = default;
 #if defined(BELE_CTP)
     typedef N_BELE_RTP::LEPolicy RTP_Policy;
 #elif defined(BELE_RTP)
     typedef N_BELE_CTP::LEPolicy CTP_Policy;
 #endif
-    V bool isBE() C { return false; }
-    V bool isLE() C { return true; }
+    VV bool isBE() C { return false; }
+    VV bool isLE() C { return true; }
 
     typedef LE16 U16;
     typedef LE32 U32;
     typedef LE64 U64;
 
-    V unsigned get16(const void *p) C
-        { return get_le16(p); }
-    V unsigned get24(const void *p) C
-        { return get_le24(p); }
-    V unsigned get32(const void *p) C
-        { return get_le32(p); }
-    V upx_uint64_t get64(const void *p) C
-        { return get_le64(p); }
+    V unsigned get16(const void *p) C { return get_le16(p); }
+    V unsigned get24(const void *p) C { return get_le24(p); }
+    V unsigned get32(const void *p) C { return get_le32(p); }
+    V upx_uint64_t get64(const void *p) C { return get_le64(p); }
 
-    V void set16(void *p, unsigned v) C
-        { set_le16(p, v); }
-    V void set24(void *p, unsigned v) C
-        { set_le24(p, v); }
-    V void set32(void *p, unsigned v) C
-        { set_le32(p, v); }
-    V void set64(void *p, upx_uint64_t v) C
-        { set_le64(p, v); }
+    V void set16(void *p, unsigned v) C { set_le16(p, v); }
+    V void set24(void *p, unsigned v) C { set_le24(p, v); }
+    V void set32(void *p, unsigned v) C { set_le32(p, v); }
+    V void set64(void *p, upx_uint64_t v) C { set_le64(p, v); }
 
-    V unsigned get16_signed(const void *p) C
-        { return get_le16_signed(p); }
-    V unsigned get24_signed(const void *p) C
-        { return get_le24_signed(p); }
-    V unsigned get32_signed(const void *p) C
-        { return get_le32_signed(p); }
-    V upx_uint64_t get64_signed(const void *p) C
-        { return get_le64_signed(p); }
+    V int get16_signed(const void *p) C { return get_le16_signed(p); }
+    V int get24_signed(const void *p) C { return get_le24_signed(p); }
+    V int get32_signed(const void *p) C { return get_le32_signed(p); }
+    V upx_int64_t get64_signed(const void *p) C { return get_le64_signed(p); }
 
-    S u16_compare(const void *a, const void *b) C
-        { return le16_compare(a, b); }
-    S u24_compare(const void *a, const void *b) C
-        { return le24_compare(a, b); }
-    S u32_compare(const void *a, const void *b) C
-        { return le32_compare(a, b); }
-    S u64_compare(const void *a, const void *b) C
-        { return le64_compare(a, b); }
+    S u16_compare(const void *a, const void *b) C { return le16_compare(a, b); }
+    S u24_compare(const void *a, const void *b) C { return le24_compare(a, b); }
+    S u32_compare(const void *a, const void *b) C { return le32_compare(a, b); }
+    S u64_compare(const void *a, const void *b) C { return le64_compare(a, b); }
 
-    S u16_compare_signed(const void *a, const void *b) C
-        { return le16_compare_signed(a, b); }
-    S u24_compare_signed(const void *a, const void *b) C
-        { return le24_compare_signed(a, b); }
-    S u32_compare_signed(const void *a, const void *b) C
-        { return le32_compare_signed(a, b); }
-    S u64_compare_signed(const void *a, const void *b) C
-        { return le64_compare_signed(a, b); }
+    S u16_compare_signed(const void *a, const void *b) C { return le16_compare_signed(a, b); }
+    S u24_compare_signed(const void *a, const void *b) C { return le24_compare_signed(a, b); }
+    S u32_compare_signed(const void *a, const void *b) C { return le32_compare_signed(a, b); }
+    S u64_compare_signed(const void *a, const void *b) C { return le64_compare_signed(a, b); }
 
-    static void compileTimeAssertions() {
+    static void compileTimeAssertions() noexcept {
         COMPILE_TIME_ASSERT(sizeof(U16) == 2)
         COMPILE_TIME_ASSERT(sizeof(U32) == 4)
         COMPILE_TIME_ASSERT(sizeof(U64) == 8)
@@ -238,41 +203,26 @@ struct LEPolicy
         COMPILE_TIME_ASSERT_ALIGNED1(U64)
     }
 
+private:
+    // disable copy and move
+    UPX_CXX_DISABLE_COPY_MOVE(LEPolicy)
     // disable dynamic allocation
-    DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(LEPolicy)
 };
 
-
+// NE - Native Endianness policy (aka Host Policy)
 #if (ACC_ABI_BIG_ENDIAN)
+typedef BEPolicy NEPolicy;
 typedef BEPolicy HostPolicy;
 #elif (ACC_ABI_LITTLE_ENDIAN)
+typedef LEPolicy NEPolicy;
 typedef LEPolicy HostPolicy;
 #else
-#  error "ACC_ABI_ENDIAN"
+#error "ACC_ABI_ENDIAN"
 #endif
-
-
-#if 0 /* UNUSED */
-struct HostAlignedPolicy
-{
-#if defined(BELE_CTP)
-    enum { isBE = HostPolicy::isBE, isLE = HostPolicy::isLE };
-#endif
-
-    typedef upx_uint16_t U16;
-    typedef upx_uint32_t U32;
-    typedef upx_uint64_t U64;
-
-    static void compileTimeAssertions() {
-        COMPILE_TIME_ASSERT(sizeof(U16) == 2)
-        COMPILE_TIME_ASSERT(sizeof(U32) == 4)
-        COMPILE_TIME_ASSERT(sizeof(U64) == 8)
-    }
-};
-#endif
-
 
 #undef V
+#undef VV
 #undef S
 #undef C
 

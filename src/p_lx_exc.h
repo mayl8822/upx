@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,10 +28,7 @@
    <jreiser@users.sourceforge.net>
  */
 
-
-#ifndef __UPX_P_LX_EXC_H
-#define __UPX_P_LX_EXC_H 1
-
+#pragma once
 
 /*************************************************************************
 // linux/386 (generic "execve" format)
@@ -47,23 +44,23 @@ public:
         void const *proto,
         unsigned const brka
     );
-    virtual int getFormat() const { return UPX_F_LINUX_i386; }
-    virtual const char *getName() const { return "linux.exec/i386"; }
-    virtual const char *getFullName(const options_t *) const { return "i386-linux.elf.execve"; }
-    virtual const int *getCompressionMethods(int method, int level) const;
-    virtual const int *getFilters() const;
-    virtual void buildLoader(const Filter *);
+    virtual int getFormat() const override { return UPX_F_LINUX_i386; }
+    virtual const char *getName() const override { return "linux.exec/i386"; }
+    virtual const char *getFullName(const options_t *) const override { return "i386-linux.elf.execve"; }
+    virtual const int *getCompressionMethods(int method, int level) const override;
+    virtual const int *getFilters() const override;
+    virtual void buildLoader(const Filter *) override;
 
-    virtual bool canPack();
+    virtual tribool canPack() override;
 
 protected:
-    virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    // virtual void pack2(OutputFile *, Filter &);  // append compressed data
-    // virtual void pack3(OutputFile *, Filter &);  // append loader
-    virtual void pack4(OutputFile *, Filter &);  // append PackHeader
+    virtual void pack1(OutputFile *, Filter &) override;  // generate executable header
+    // virtual void pack2(OutputFile *, Filter &) override;  // append compressed data
+    // virtual void pack3(OutputFile *, Filter &) override;  // append loader
+    virtual void pack4(OutputFile *, Filter &) override;  // append PackHeader
 
     // loader util
-    virtual Linker* newLinker() const;
+    virtual Linker* newLinker() const override;
     virtual int getLoaderPrefixSize() const;
     virtual void buildLinuxLoader(
         upx_byte const *const proto,  // assembly-only sections
@@ -74,9 +71,9 @@ protected:
     );
 
     // patch util
-    virtual void patchLoader();
-    virtual void patchLoaderChecksum();
-    virtual void updateLoader(OutputFile *);
+    virtual void patchLoader() override;
+    virtual void patchLoaderChecksum() override;
+    virtual void updateLoader(OutputFile *) override;
 
     // ELF util
     virtual int checkEhdr(const Elf_LE32_Ehdr *ehdr) const;
@@ -87,23 +84,23 @@ protected:
 
     unsigned n_mru;
 
-    __packed_struct(cprElfHdr1)
+    packed_struct(cprElfHdr1) {
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[1];
         l_info linfo;
-    __packed_struct_end()
+    };
 
-    __packed_struct(cprElfHdr2)
+    packed_struct(cprElfHdr2) {
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[2];
         l_info linfo;
-    __packed_struct_end()
+    };
 
-    __packed_struct(cprElfHdr3)
+    packed_struct(cprElfHdr3) {
         Elf_LE32_Ehdr ehdr;
         Elf_LE32_Phdr phdr[3];
         l_info linfo;
-    __packed_struct_end()
+    };
 
     cprElfHdr3 elfout;
 
@@ -134,15 +131,14 @@ class PackBSDI386 : public PackLinuxI386
     typedef PackLinuxI386 super;
 public:
     PackBSDI386(InputFile *f);
-    virtual int getFormat() const { return UPX_F_BSD_i386; }
-    virtual const char *getName() const { return "bsd.exec/i386"; }
-    virtual const char *getFullName(const options_t *) const { return "i386-bsd.elf.execve"; }
+    virtual int getFormat() const override { return UPX_F_BSD_i386; }
+    virtual const char *getName() const override { return "bsd.exec/i386"; }
+    virtual const char *getFullName(const options_t *) const override { return "i386-bsd.elf.execve"; }
 
 protected:
-    virtual void pack1(OutputFile *, Filter &);  // generate executable header
+    virtual void pack1(OutputFile *, Filter &) override;  // generate executable header
 
-    virtual void buildLoader(const Filter *);
+    virtual void buildLoader(const Filter *) override;
 };
-#endif /* already included */
 
 /* vim:set ts=4 sw=4 et: */

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,58 +25,52 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
-#ifndef __UPX_P_TMT_H
-#define __UPX_P_TMT_H 1
-
+#pragma once
 
 /*************************************************************************
 // tmt/adam
 **************************************************************************/
 
-class PackTmt : public Packer
-{
+class PackTmt final : public Packer {
     typedef Packer super;
+
 public:
-    PackTmt(InputFile *f);
-    virtual int getVersion() const { return 13; }
-    virtual int getFormat() const { return UPX_F_TMT_ADAM; }
-    virtual const char *getName() const { return "tmt/adam"; }
-    virtual const char *getFullName(const options_t *) const { return "i386-dos32.tmt.adam"; }
-    virtual const int *getCompressionMethods(int method, int level) const;
-    virtual const int *getFilters() const;
+    explicit PackTmt(InputFile *f);
+    virtual int getVersion() const override { return 13; }
+    virtual int getFormat() const override { return UPX_F_TMT_ADAM; }
+    virtual const char *getName() const override { return "tmt/adam"; }
+    virtual const char *getFullName(const Options *) const override {
+        return "i386-dos32.tmt.adam";
+    }
+    virtual const int *getCompressionMethods(int method, int level) const override;
+    virtual const int *getFilters() const override;
 
-    virtual void pack(OutputFile *fo);
-    virtual void unpack(OutputFile *fo);
+    virtual void pack(OutputFile *fo) override;
+    virtual void unpack(OutputFile *fo) override;
 
-    virtual bool canPack();
-    virtual int canUnpack();
+    virtual tribool canPack() override;
+    virtual tribool canUnpack() override;
 
 protected:
-    virtual int readFileHeader();
+    int readFileHeader();
 
-    virtual unsigned findOverlapOverhead(const upx_bytep buf,
-                                         const upx_bytep tbuf,
-                                         unsigned range = 0,
-                                         unsigned upper_limit = ~0u) const;
-    virtual void buildLoader(const Filter *ft);
-    virtual Linker* newLinker() const;
+    virtual unsigned findOverlapOverhead(const byte *buf, const byte *tbuf, unsigned range = 0,
+                                         unsigned upper_limit = ~0u) const override;
+    virtual void buildLoader(const Filter *ft) override;
+    virtual Linker *newLinker() const override;
 
-    unsigned adam_offset;
-    int big_relocs;
+    unsigned adam_offset = 0;
+    int big_relocs = 0;
 
-    struct tmt_header_t
-    {
-        char _[16];     // signature,linkerversion,minversion,exesize,imagestart
+    struct alignas(1) tmt_header_t {
+        byte _[16]; // signature,linkerversion,minversion,exesize,imagestart
         LE32 imagesize;
-        char __[4];     // initial memory
+        byte __[4]; // initial memory
         LE32 entry;
-        char ___[12];   // esp,numfixups,flags
+        byte ___[12]; // esp,numfixups,flags
         LE32 relocsize;
-    } ih, oh;
+    };
+    tmt_header_t ih = {}, oh = {};
 };
-
-
-#endif /* already included */
 
 /* vim:set ts=4 sw=4 et: */

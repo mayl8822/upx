@@ -3,8 +3,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2020 Laszlo Molnar
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -428,10 +428,10 @@ section LXUNF000        // enter at +0 for decompression; +2 for unfiltering
         jmps decompr0
 section LXUNF002
   // 2+ address of decompress subroutine
-  // unfilter(upx_byte *, length, cto8)
+  // unfilter(byte *, length, cto8)
 lxunfilter:
         pop edx  // return address
-        pop eax  // upx_byte *, same as addvalue
+        pop eax  // byte *, same as addvalue
         pop ecx  // length
         xchg eax, edi  // edi= pointer; eax= saved_edi
         pusha  // save C-convention ebx, ebp, esi, edi; also eax, edx
@@ -715,6 +715,10 @@ section LXUNF035
         push eax
         push edx
         ret
+.endm
+
+.macro  endbr32
+        .byte 0xf3,0x0f,0x1e,0xfb
 .endm
 
 // vi:ts=8:et:nowrap

@@ -3,7 +3,7 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 2006-2020 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -37,6 +37,11 @@
 ; Output:
 ;   eax - 0
 ;   ecx - 0
+
+; WARNING: NO CHANGES ARE ALLOWED (except to fix "real bugs")
+; because of triggering anti-virus utilities for
+; i386-dos32, i386-win32, win64.
+; This file has been made read-only as a hint.
 */
 
 // init

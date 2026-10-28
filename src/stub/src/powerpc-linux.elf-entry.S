@@ -1,10 +1,10 @@
-/*  powerpc-linux.elf-entry.S -- Linux program entry point & decompressor (Elf binary)
+/* powerpc-linux.elf-entry.S -- Linux program entry point & decompressor (Elf binary)
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -61,20 +61,19 @@ PROT_EXEC=  4
 MAP_PRIVATE= 2
 MAP_FIXED=     0x10
 MAP_ANONYMOUS= 0x20
-
-PAGE_SHIFT= 12
-PAGE_SIZE = -(~0<<PAGE_SHIFT)
-PAGE_SHIFT64= 16
-PAGE_SIZE64 = -(~0<<PAGE_SHIFT64)
-
+MFD_EXEC= 0x10
 
 /* /usr/include/asm-ppc/unistd.h */
 __NR_exit   = 1
+__NR_memfd_create= 360
 __NR_mmap   = 90
 __NR_mprotect = 125
 __NR_munmap = 91
 __NR_open  = 5
 __NR_write = 4
+__NR_openat = 286
+
+EINVAL= 22
 
   section ELFMAINX
 sz_pack2= -4+ _start
@@ -85,7 +84,6 @@ f_exp:
 /* Returns 0 on success; non-zero on failure. */
 decompress:  // (uchar const *src, size_t lsrc, uchar *dst, size_t &ldst, uint method)
 
-  section NRV_HEAD
 SZ_DLINE=128  # size of data cache line in Apple G5
 
 /* PowerPC has no 'cmplis': compare logical [unsigned] immediate shifted [by 16] */
@@ -102,18 +100,8 @@ SZ_DLINE=128  # size of data cache line in Apple G5
 #define bits a6
 #define disp a7
 
-  section NRV2E
-#include "arch/powerpc/32/nrv2e_d.S"
-
-  section NRV2D
-#include "arch/powerpc/32/nrv2d_d.S"
-
-  section NRV2B
 #include "arch/powerpc/32/nrv2b_d.S"
 
-#include "arch/powerpc/32/lzma_d.S"
-
-  section NRV_TAIL
 eof_nrv:
 #define dst0 a4
 #define tmp a1
@@ -134,7 +122,6 @@ eof_nrv:
 // that the second dcbst (or icbi) on a the same line will be fast.
 // If not, then too bad.
 
-  section CFLUSH  // In: a2=dst= &highest stored byte; a4=dst0= &lowest stored byte
 CACHELINE=32
         ori dst0,dst0,-1+ CACHELINE  // highest addr on cache line
 cfl_nrv:
@@ -150,105 +137,92 @@ cfl_ret:
         ret
 
   section ELFMAINY
-msg_SELinux:
-        call L72
-L70:
-        .asciz "mmap failed.\n"
-L71:
         // IDENTSTR goes here
 
   section ELFMAINZ
-L72:
-        li   a2,L71 - L70  // length
-        mflr a1    // message text
-        li   a0,2  // fd stderr
-        li 0,__NR_write; sc
-die:
-        li a0,127
-        li 0,__NR_exit; sc
-
 r_exp=   31
-r_PMASK= 30
+r_fp=    30
 r_ADRU=  29
 r_LENU=  28
 r_fd=    27
 r_auxv=  26
 r_elf=   25
-r_ADRM=  24; r_ADRX= r_ADRM
-r_LENM=  23; r_LENX= r_LENM
+r_ADRX=  24
+r_LENX=  23
 r_FLD=   22
-r_szuf=  21
-r_relo=  20
+
+r_PMASK= 20
 r_obinf= 19
 
         /* Decompress the rest of this loader, and jump to it. */
-unfold:  // IN: r_exp, r_auxv, r_PMASK
+unfold:  // IN: r_auxv, r_PMASK
         mflr r_FLD  // LrFLD
 
-//Open /proc/self/exe
-        call 0f; .asciz "/proc/self/exe"; .balign 4; 0: mflr a0
-        li a1,O_RDONLY
-        li r0,__NR_open; sc; mr r_fd,a0
-
-//Reserve enough space to decompress the folded code onto r_FLD.
         lwz r0,  sz_pack2 - f_exp(r_exp)
-        la r_elf,sz_pack2 - f_exp(r_exp)
-          li a4,-1
-        lwz r_szuf, sz_unc + LBINFO - LrFLD(r_FLD)  // sz_unc of fold
-          li a3,MAP_PRIVATE|MAP_ANONYMOUS
+        la  r_elf,sz_pack2 - f_exp(r_exp)
         sub r_elf,r_elf,r0  // r_elf=&Elf32_Ehdr of stub
-          li a0,0  // kernel chooses addr
-        sub r0,r_FLD,r_elf  // offset(fold)
-        add a1,r_szuf,r0  // length needed
-        mr r_LENU,a1
-        call mmapRW0
+        lwz r_LENU, sz_unc + LBINFO - LrFLD(r_FLD)  // sz_unc of fold
+
+        li a1,MFD_EXEC  // modern clue
+mfd_try:
+        call 0f; .asciz "upx"; 0:
+        mflr a0
+SYS_memfd_create= __NR_memfd_create
+        li r0,SYS_memfd_create; sc; bns+ 0f  // success
+        cmpi cr7,a1,0; bne cr7,1f  // not 2nd time
+8:
+        teq r0,r0  // 2nd error, or unexpected 1st error
+1:
+        cmpi cr7,a0,EINVAL; bne cr7,8b  // unexpected 1st error
+        li a1,0; b mfd_try  // 2nd attempt
+0:
+        mr r_fd,a0
+
+//Reserve enough space to decompress the folded code of the stub
+        mr r_fp,sp
+        li r0,-CACHELINE
+// alloca
+        sub sp,sp,r_LENU
+        and sp,sp,r0
+
+        lwz r_obinf,      LOBINFO - LrFLD(r_FLD)  // O_BINFO
+// Decompress folded code
+        lbz meth,b_method + LBINFO - LrFLD(r_FLD)
+        stw  r_LENU,SZ_FRAME+31*NBPW(r_fp)  // lzma uses for EOF
+        la ldst,    SZ_FRAME+31*NBPW(r_fp)  // &slot on stack
+        mr dst,sp  // dst for unfolding
+        lwz lsrc,sz_cpr  + LBINFO - LrFLD(r_FLD)
+        la src,sz_b_info + LBINFO - LrFLD(r_FLD)  // folded code
+        bl decompress
+        stw r_PMASK,0(sp)  // forward the actual page_mask
+
+        mr a0,r_fd
+        mr a1,sp
+        mr a2,r_LENU
+SYS_write= __NR_write
+        li r0,SYS_write; sc; bns+ 0f; teq r0,r0; 0:
+        mr sp,r_fp
+
+        li a5,0
+        mr a4,r_fd
+        li a3,MAP_PRIVATE
+        li a2,PROT_EXEC|PROT_READ  // PROT_WRITE: DEBUG only
+        mr a1,r_LENU
+        li a0,0
+SYS_mmap= __NR_mmap
+        li r0,SYS_mmap; sc; bns+ 0f; teq r0,r0; 0:
         mr r_ADRU,a0
 
-//Duplicate the input data.
-        lwz r0,sz_cpr + LBINFO - LrFLD(r_FLD)  // sz_cpr of fold
-        sub a1,r_LENU,r_szuf  // - sz_unc of fold
-        mr a4,r_fd  // from file
-        li a3,MAP_PRIVATE|MAP_FIXED  // at reserved addr a0 by previous mmap
-        add a1,a1,r0  // + sz_cpr of fold; a1 <= .st_size
-        call mmapRW0
-        sub r_relo,a0,r_elf  // relocation amount
-        mtctr r_exp; add r_exp,r_exp,r_relo  // use old f_exp; r_exp= new &f_exp
-
-// Decompress from old folded code, overwriting new copy of folded code.
-        lwz r_obinf,       LOBINFO - LrFLD(r_FLD)  // O_BINFO
-        la src,sz_b_info + LBINFO - LrFLD(r_FLD)  // old folded code
-        add r_FLD,r_FLD,r_relo  // dst for unfolding;  use copied data
-        add r_LENM,r_FLD,r_szuf  // + sz_unc = last of unfolded
-        and r_ADRM,r_exp,r_PMASK  // base for PROT_EXEC
-        sub r_LENM,r_LENM,r_ADRM  // length for PROT_EXEC
-
-// The new f_exp has PROT_WRITE, so use the old f_exp to decompress.
-        lbz meth,b_method + LBINFO - LrFLD(r_FLD)
-        stw  r_szuf,SZ_FRAME+31*NBPW(sp)  // lzma uses for EOF
-        la ldst,SZ_FRAME+31*NBPW(sp)  // &slot on stack
-        mr dst,r_FLD  // dst for unfolding
-        lwz lsrc,sz_cpr  + LBINFO - LrFLD(r_FLD)
-        bctrl  // decompress it
-
-// Generate code to compute PAGE_MASK.
-        lwz r0,0(r_FLD)  // "li r3,PAGE_MASK>>9"
-        srwi a0,r_PMASK,9
-        insrwi r0,a0,16,16  // replace the immediate constant
-        stw r0,0(r_FLD)  // get_page_mask: li r3,PAGE_MASK>>9
-
-// PROT_EXEC
-        li a2,PROT_EXEC|PROT_READ
-        mr a1,r_LENM  // length
-        mr a0,r_ADRM  // base
-        li r0,__NR_mprotect; sc
+        mr a0,r_fd
+SYS_close= 6
+        li r0,SYS_close; sc; bns+ 0f; teq r0,r0; 0:
 
 // Use the unfolded code
-        lwz r_LENX, sz_pack2 - f_exp(r_exp)
-        add r_ADRX,r_elf,r_obinf  // old compressed data
-        add r_ADRX,r_ADRX,r_relo  // new compressed data
-
-        addi r0,r_FLD,4*4  // jmp over get_page_mask()
+        addi r0,r_ADRU,2*NBPW  // skip page_mask, other word
+        add r_ADRX,r_elf,r_obinf  // compressed data
         mtctr r0
+        li r0,(SZ_FRAME+32*NBPW)/NBPW  // words before &argc
+        lwz r_LENX, sz_pack2 - f_exp(r_exp)
         bctr
 
 // Example code at entrypoint of C-language subroutine:
@@ -263,14 +237,6 @@ unfold:  // IN: r_exp, r_auxv, r_PMASK
 //      addi    sp,sp,96  # de-allocate local frame
 //      blr  # goto return address
 
-mmapRW0:
-        li a5,0  // offset
-mmapRW:
-        li a2,PROT_READ|PROT_WRITE
-mmap:
-        li r0,__NR_mmap; sc; bns 0f; teq r0,r0; 0:
-        ret
-
 zfind:
         lwz r0,0(a0); addi a0,a0,NBPW
         cmpi cr7,r0,0; bne+ cr7,zfind
@@ -281,7 +247,7 @@ main:
         stmw r2,  SZ_FRAME+ 2*NBPW - NBPW(sp) // save registers r2 thru r31
         mflr r_exp  // &f_exp (decompress)
 
-        la a0,SZ_FRAME+32*NBPW(sp)  // &argc
+        la a0,SZ_FRAME+32*NBPW +NBPW(sp)  // &argv  (argc might be zero!)
         call zfind  // a0= envp
         call zfind  // a0= &Elf32_auxv
         mr r_auxv,a0  // save for folded code
@@ -291,7 +257,7 @@ main:
         lwz r0,a_type(a0); lwz a1,a_val(a0); addi a0,a0,sz_auxv
         cmpi cr7,r0,AT_PAGESZ; beq- cr7,2f
         cmpi cr0,r0,AT_NULL;   bne+ cr0,1b
-        li a1,PAGE_SIZE  // not found; use default
+        li a1,1<<12  // not found; use default
 2:
         neg r_PMASK,a1  // save for folded code
 

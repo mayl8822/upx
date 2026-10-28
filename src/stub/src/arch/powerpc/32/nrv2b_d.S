@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -65,12 +65,12 @@
 /* rotate next bit into bottom bit of reg; set cr0 based on entire result reg */
 #define getnextb(reg) call get1; adde. reg,reg,reg
 
-get1:
+get1:  // PowerPC: cannot branch on CArry (independent of OVerflow)
         cmpl  cr0,bits,hibit  // cr0  for   jnextb
-        addc bits,bits,bits  // CArry for getnextb
+        addc bits,bits,bits  // Carry for getnextb
         bnelr+ cr0  // return if reload not needed; likely 31/32
 
-/* CArry has been set from adding 0x80000000 to itself; preserve for 'adde' */
+/* Carry has been set from adding 0x80000000 to itself; preserve for 'adde' */
                 // fetch 4 bytes unaligned and LITTLE ENDIAN
 #if 0  /*{ clean; but 4 instr larger, and 3 cycles longer */
         lbz bits,1(src)  // lo8
@@ -83,8 +83,9 @@ get1:
         addi src,src,4
 #endif  /*}*/
 
-        cmpl  cr0,bits,hibit  // cr0  for   jnextb
-        adde bits,bits,bits  // CArry for getnextb; set lo bit from CarryIn
+        ori t1,bits,1  // loaded bits might equal hibit; we want 'bgt' to succeed
+        cmpl  cr0,t1,hibit  // cr0  for   jnextb
+        adde bits,bits,bits  // Carry for getnextb; set lo bit from CarryIn
         ret
 
 lit_n2b:
@@ -99,7 +100,7 @@ offmore_n2b:
         getnextb(off)
         jnextb0n offmore_n2b
 
-        addic. off,off,-3  // CArry set [and ignored], but no 'addi.'
+        addic. off,off,-3  // Carry set [and ignored], but no 'addi.'
            li len,0
         blt- offprev_n2b
         lbzu t1,1(src)
@@ -116,7 +117,7 @@ lenmore_n2b:
         getnextb(len)
         jnextb0n lenmore_n2b
 gotlen_n2b:
-        subfic t1,disp,(~0)+(-0xd00)  // want CArry only
+        subfic t1,disp,(~0)+(-0xd00)  // want Carry only
         adde len,len,off  // len += off + (disp < -0xd00);
 
 copy:

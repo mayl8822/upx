@@ -3,9 +3,9 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2020 Laszlo Molnar
-;  Copyright (C) 2000-2020 John F. Reiser
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Laszlo Molnar
+;  Copyright (C) John F. Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -101,10 +101,9 @@ L30:  // distribute existing Elf32_auxv into new table
         jmp L30
 L40:
 
-#define OVERHEAD 2048
-#define MAX_ELF_HDR 512
+#include "../../MAX_ELF_HDR.h"
 
-        sub esp, MAX_ELF_HDR + OVERHEAD
+        sub esp, MAX_ELF_HDR_32
 
         xchg eax, ebx  // eax= uncDst
         mov ecx, [   edx]  // sz_unc
@@ -116,7 +115,7 @@ L40:
         pop ecx  // junk
         push eax  // save entry address
         popa  // edi= entry address; esi= uncDst
-        add esp, MAX_ELF_HDR + OVERHEAD  // remove temp space
+        add esp, MAX_ELF_HDR_32  // remove temp space
 
         pop ecx  // argc
         pop edx  // $0 filename, to become argv[0]
@@ -141,7 +140,7 @@ L40:
 // Ulrich Drepper (drepper@cyngus.com) has refused to fix the bugs.
 // See GNU wwwgnats libc/1165 .
 
-#define  N_STKCLR (0x100 + MAX_ELF_HDR + OVERHEAD)/4
+#define  N_STKCLR (0x100 + MAX_ELF_HDR_32)/4
         lea edi, [esp - 4*N_STKCLR]
         pusha  // values will be zeroed
         mov ebx,esp  // save
@@ -223,6 +222,13 @@ no_opt_arg:
         mov ecx, esp  // ecx= argv (== arg2 for execve)
 
         push __NR_execve
+        pop eax
+        int 0x80
+// execve() has failed.  Propagate the error code.
+        neg eax  // make positive
+        xchg eax, ebx  // sysarg1
+#define __NR_exit 1
+        push __NR_exit
         pop eax
         int 0x80
         hlt

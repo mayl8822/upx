@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -33,36 +33,34 @@ NBPW= 4
 #include "arch/mips/r3000/macros.ash"
 #include "arch/mips/r3000/bits.ash"
 
-sp_frame= 0x20
-  // These are local temporaries.
-F_ADRM=  2*NBPW
-F_LENM=  3*NBPW
-
-  // These are passed on stack to unfolded code.
+sp_frame= 8*NBPW  # first 4 are ??
+  # These are passed on stack to unfolded code.
 F_PMASK= 4*NBPW
-F_fd=    5*NBPW
+F_SZPK2= 5*NBPW; F_EOF= F_SZPK2
 F_ADRU=  6*NBPW
 F_LENU=  7*NBPW
-  // r_PMASK still is used here
+  # r_PMASK still is used here
 
-// C-language uses 8 args in registers
-a5=        9
-a4=        8
+# C-language uses 8 args in registers
+#ifndef a5  //{
+  #define a5       9
+  #define a4       8
+#endif  //}
 
-//ra             31
+#ra             31
 #define r_fexp   30  /* s8 */
-//sp             29  /* hardware */
+#sp             29  /* hardware */
 #define r_PMASK  28  /* gp */
-//k1             27  /* trashed by syscall */
-//k0             26  /* trashed by syscall */
-//t9, jp         25  /* trashed by syscall ? */
-//t8             24  /* trashed by syscall ? */
-#define r_fd     23  /* s7 */
+#k1             27  /* trashed by syscall */
+#k0             26  /* trashed by syscall */
+#t9, jp         25  /* trashed by syscall ? */
+#t8             24  /* trashed by syscall ? */
+#define r_mfd    23  /* s7 */
 #define r_auxv   22  /* s6 */
 #define r_elfa   21  /* s5 */
 #define r_FOLD   20  /* s4 */
 #define r_szuf   19  /* s3 */
-#define r_relo   18  /* s2 */
+//#define r_relo   18  /* s2 */
 #define r_LENX   17  /* s1 */
 #define r_ADRX   16  /* s0 */
 #define r_LENU   r_LENX
@@ -83,12 +81,15 @@ sz_p_info= 12
 sz_b_info= 12
   sz_unc= 0
   sz_cpr= 4
-  b_method= 8
+#define b_method 8
   b_ftid=   9
   b_cto8=  10
   b_unused=11
 
-AT_NULL= 0  // <elf.h>
+is_ptinterp=     (1<<0)
+unmap_all_pages= (1<<1)
+
+AT_NULL= 0  # <elf.h>
 AT_PAGESZ= 6
 a_type= 0
 a_val=  NBPW
@@ -100,22 +101,26 @@ PROT_READ=  1
 PROT_WRITE= 2
 PROT_EXEC=  4
 
+MAP_SHARED=         1
 MAP_PRIVATE=        2
 MAP_FIXED=       0x10
 MAP_ANONYMOUS=  0x800
 
-PAGE_SHIFT= 12  // default only
-PAGE_SIZE = -(~0<<PAGE_SHIFT)
-
-M_NRV2B_LE32=2  // ../conf.h
+M_NRV2B_LE32=2  # ../conf.h
 M_NRV2D_LE32=5
 M_NRV2E_LE32=8
 
 /* These from /usr/include/asm/unistd.h */
 __NR_Linux = 4000
+__NR_close    =   6+ __NR_Linux
 __NR_exit     =   1+ __NR_Linux
+__NR_ftruncate=  93+ __NR_Linux
+__NR_memfd_create= 354+ __NR_Linux
+  MFD_EXEC= 0x10
+  EINVAL= 22
 __NR_mmap     =  90+ __NR_Linux
 __NR_mprotect = 125+ __NR_Linux
+__NR_msync    = 144+ __NR_LINUX
 __NR_open     =   5+ __NR_Linux
 __NR_write    =   4+ __NR_Linux
 __NR_cacheflush = 147+ __NR_Linux
@@ -124,9 +129,9 @@ __NR_cacheflush = 147+ __NR_Linux
 ICACHE= 1<<0
 DCACHE= 1<<1
 
-//BAL=0x04110000
+#BAL=0x04110000
 
-  section ELFMAINX
+  section ELFMAINX; .set noreorder
 sz_pack2 = . - 4
 
 _start: .globl _start
@@ -136,8 +141,8 @@ _start: .globl _start
 0:
 
 /* Returns 0 on success; non-zero on failure. */
-f_exp:  // alternate name
-decompressor:  // (uchar const *lxsrc, size_t lxsrclen, uchar *lxdst, u32 &lxdstlen, uint method)
+f_exp:  # alternate name
+decompressor:  # (uchar const *lxsrc, size_t lxsrclen, uchar *lxdst, u32 &lxdstlen, uint method)
 #define lxsrc    a0
 #define lxsrclen a1
 #define lxdst    a2
@@ -151,283 +156,166 @@ decompressor:  // (uchar const *lxsrc, size_t lxsrclen, uchar *lxdst, u32 &lxdst
 #define ldst    lxdstlen
 #define meth     a4
 
-        UCL_init    32,1,0
-        decomp_done = eof
-#include "arch/mips/r3000/nrv2e_d.ash"
-  section NRV2E
-        build nrv2e, full
-
-#include "arch/mips/r3000/nrv2d_d.ash"
-  section NRV2D
-        build nrv2d, full
-
-#include "arch/mips/r3000/nrv2b_d.ash"
-  section NRV2B
-        build nrv2b, full
-
-section     LZMA_ELF00 # (a0=lxsrc, a1=lxsrclen, a2=lxdst, a3= &lxdstlen)
-
-/* LzmaDecode(a0=CLzmaDecoderState *,
-        a1=src, a2=srclen, a3=*psrcdone,
-        dst, dstlen, *pdstdone);
-struct CLzmaDecoderState {
-        uchar lit_context_bits;
-        uchar lit_pos_bits;
-        uchar pos_bits;
-        uchar unused;
-        struct CProb[LZMA_BASE_SIZE + (LZMA_LIT_SIZE<<n)];
-};
-*/
-
-LZMA_BASE_NUM = 1846
-LZMA_LIT_NUM  =  768
-
-lxlzma_szframe  = 12*4
-lxlzma_sv_pc    = 11*4
-lxlzma_sv_sp    = 10*4
-lxlzma_dst      =  9*4
-lxlzma_dstdone  =  8*4
-lxlzma_srcdone  =  7*4
-lxlzma_retval   = lxlzma_srcdone
-
-#define a4 t0
-#define a5 t1
-#define a6 t2
-
-        lbu t9,0(lxsrc)  # ((lit_context_bits + lit_pos_bits)<<3) | pos_bits
-        li tmp,-2*LZMA_LIT_NUM
-        lbu t8,1(lxsrc)  # (lit_pos_bits<<4) | lit_context_bits
-        andi v0,t9,7  # pos_bits
-        srl t9,t9,3  # (lit_context_bits + lit_pos_bits)
-        sllv tmp,tmp,t9
-        addiu tmp,tmp,-4 - 2*LZMA_BASE_NUM - lxlzma_szframe
-        addu sp,sp,tmp  # alloca
-                sw tmp,lxlzma_sv_sp(sp)  # dynamic frame size
-        addiu a6,sp,lxlzma_dstdone
-                sw ra, lxlzma_sv_pc(sp)
-        lw    a5,0(lxdstlen)
-                sw lxdst,lxlzma_dst(sp)
-        move  a4,lxdst
-        addiu a3,sp,lxlzma_srcdone
-        addiu a2,lxsrclen,-2  # 2 header bytes
-        addiu a1,lxsrc,2  # 2 header bytes
-        addiu a0,sp,lxlzma_szframe  # &CLzamDecoderState
-        sb     v0,2(a0)   # pos_bits
-        andi tmp,t8,0xf
-        sb   tmp, 0(a0)  # lit_context_bits
-        srl  t8,t8,4
-        bal lzma_decode
-          sb   t8,1(a0)   # lit_pos_bits
-
-/* It seems that for our uses the icache does not need to be invalidated,
-   because no lines from the destination have ever been fetched.  However,
-   if the dcache is write-back, then some of the results might not be in
-   memory yet, and the icache could fetch stale data; so memory must be
-   updated from dcache.
-   The *next* call of the decompressor will tend to sweep much of the dcache
-   anyway, because the probability history array (typically ushort[7990] or
-   ushort[14134]) gets initialized.
-*/
-        sw v0,lxlzma_retval(sp)  # return value from decompression
-
-        lw a0,lxlzma_dst(sp)
-        lw a1,lxlzma_dstdone(sp)
-        li a2,ICACHE|DCACHE
-        li v0,__NR_cacheflush; syscall
-
-        lw v0,lxlzma_retval(sp)  # return value from decompression
-
-        lw tmp,lxlzma_sv_sp(sp)
-        lw ra,lxlzma_sv_pc(sp)
-/* Workaround suspected glibc bug: elf/rtld.c assumes uninit local is zero.
-   2007-11-24 openembedded.org mipsel-linux 2.6.12.6/glibc 2.3.2
-*/
-        subu tmp,sp,tmp  # previous sp (un_alloca)
-0:
-        addiu sp,4
-        bne sp,tmp,0b
-          sw $0,-4(sp)
-
-        jr ra
-          nop
-
-
-lzma_decode:
-  section LZMA_DEC20
-#if 1  /*{*/
-#include "arch/mips/r3000/lzma_d.S"
-#else  /*}{*/
-#include "arch/mips/r3000/lzma_d-mips3k.S"       /* gpp_inc:ignore=1: */
-#endif  /*}*/
-
-
-  section LZMA_DEC30
-        break  // FIXME
-
-  section NRV_HEAD
+//  section NRV_HEAD
         addiu sp,-4
         sw ra,0(sp)
         add lxsrclen,lxsrclen,lxsrc  //  src_EOF
         sw lxdst,(lxdstlen)  // original lxdst in &lxdstlen
 
-  section NRV_TAIL
-eof:
+// macro sets parameters to choose code style
+        UCL_init    32,1,0  // 32 bits (not 8), UCL_SMALL, !UCL_FAST
+        decomp_done = eof_n2b  // label name
+// macro to expand
+#include "arch/mips/r3000/nrv2b_d.ash"
+        build nrv2b, full
+
+//  section NRV_TAIL
+eof_n2b:
         lw v1,(lxdstlen)  // original lxdst
         subu t8,lxsrc,lxsrclen  // new_src - src_EOF;  // return 0: good; else: bad
         lw ra,0(sp)
         sw t8,0(sp)
 
-  section CFLUSH
+// FIXME: should not be needed after memfd_create + mmap
+//  section CFLUSH
         move a0,v1  // original lxdst
         subu a1,lxdst,v1  // actual length generated
           sw a1,(lxdstlen)
         li a2,ICACHE|DCACHE
-        li v0,__NR_cacheflush; syscall
+        li v0,__NR_cacheflush; syscall  // ignore failure
 
         lw v0,0(sp)
         jr ra
           addiu sp,4
 
+// Not needed because call memfd_create directly instead of upx_mmap_and_fd
+//        .balign 4
+//upx_mmap_and_fd: .globl upx_mmap_and_fd
+//        // section UMF_LINUX or UMF_ANDROID goes here
 
-  section ELFMAINY
-msg_SELinux:
-        addiu a2,zero,L71 - L70  // length
-        bal L72
-          move a1,ra
-L70:
-        .asciz "PROT_EXEC|PROT_WRITE failed.\n"
-L71:
-        // IDENTSTR goes here
-
-  section ELFMAINZ
-L72:
-        li a0,2  // fd stderr
-        li v0,__NR_write; syscall
-die:
-        li a0,127
-        li v0,__NR_exit; syscall
-
-unfold:  // IN: $r_fexp,$r_auxv,$r_PMASK,$r_FOLD,ra= "/proc/self/exe"
+  section ELFMAINZ; .set noreorder
+unfold:  # IN: $r_fexp,$r_auxv,$r_PMASK,$r_FOLD
         addiu sp,sp,-sp_frame
         sw $r_PMASK,F_PMASK(sp)
+        lw $r_LENX,sz_pack2 - f_exp($r_fexp)  # length before stub
+        la $r_elfa,sz_pack2 - f_exp($r_fexp)
+        sub $r_elfa,$r_elfa,$r_LENX  # $r_elfa= &Elf32_Ehdr of this stub
 
-// Open /proc/self/exe
-        move a0,ra
-        li a1,O_RDONLY
-        li v0,__NR_open; syscall; sw v0,F_fd(sp)
-
-// Reserve enough space to decompress the folded code onto $r_FOLD.
-        lw v0,                  sz_pack2 - f_exp($r_fexp)  // length before stub
-          addiu $r_elfa,$r_fexp,sz_pack2 - f_exp
-          li a4,-1
-        lw $r_szuf,sz_unc($r_FOLD)  // sz_unc of fold
-          li a3,MAP_PRIVATE|MAP_ANONYMOUS
-        sub $r_elfa,$r_elfa,v0  // $r_elfa= &Elf32_Ehdr of this stub
-          li a0,0  // kenrel chooses addr
-        sub v0,$r_FOLD,$r_elfa  // offset(fold)
-        add a1,$r_szuf,v0  // length needed
-        sw a1,F_LENU(sp)
-        bal mmapRW0
-          move $r_LENU,a1
-        sw v0,F_ADRU(sp)
-
-// Duplicate the input data
-        lw v0,sz_cpr($r_FOLD)  // sz_cpr of fold
-        sub a1,$r_LENU,$r_szuf  // - sz_unc of fold
-        lw a4,F_fd(sp)  // from file
-        li a3,MAP_PRIVATE|MAP_FIXED  // at reserved addr a0 by previous map
-        add a1,a1,v0  // + sz_cpr of fold; a1 <= .st_size
-        bal mmapRW0
-          lw a0,F_ADRU(sp)
-        sub $r_relo, v0,$r_elfa  // relocation amount
-        move ra,$r_fexp; add $r_fexp,$r_fexp,$r_relo  // use old f_exp; $r_fexp= new &f_exp
-
-// Decompress from old folded code, overwriting new copy of folded code
-        lw $r_ADRX,   -4($r_FOLD)  // O_BINFO
-        addiu src,$r_FOLD,sz_b_info  // a0  old folded code
-        add $r_FOLD,$r_FOLD,$r_relo  // dst for unfoding;  use copied data
-        add t1, $r_FOLD, $r_szuf  // + sz_unc = last of unfolded
-        and t0,$r_fexp,$r_PMASK  // base for PROT_EXEC
-        sw  t0,F_ADRM(sp)
-        sub t1,t1,t0  // length for PROT_EXEC
-        sw  t1,F_LENM(sp)
-
-// The new f_exp has PROT_WRITE, so use the old f_exp to decompress.
-        lb meth,b_method($r_FOLD)
-        sw $r_szuf,0(sp)  // lzma uses for EOF
-        move dst,$r_FOLD  // a2  dst for unfolding
-        lw lsrc,sz_cpr($r_FOLD)  // a1
-        jalr ra  // decompress it
-          move ldst,sp  // a3  &slot on stack
-
-// Generate code to compute PAGE_MASK.
-        lw v0,0($r_FOLD)  // "li v0,0"
-        srl v1,$r_PMASK,9
-        andi v1,v1,0xffff  // 0xffff is NOT sign-extended
-        or v0,v0,v1  // replace immediate constant
-        sw v0,0($r_FOLD)
-
-// PROT_EXEC
-        li a2,PROT_EXEC|PROT_READ
-        lw a1,F_LENM(sp)  // length
-        lw a0,F_ADRM(sp)  // base
-        li v0,__NR_mprotect; syscall
-
-// Use the unfolded code
-        addi ra,$r_FOLD,4*4  // jmp over get_page_mask()
-        lw  $r_LENX,sz_pack2 - f_exp($r_fexp)
-        add $r_ADRX,$r_elfa,$r_ADRX  // old compressed data
-        jr ra
-          add $r_ADRX,$r_ADRX,$r_relo  // new compressed data
-
-mmapRW0:
-        li a5,0  // offset
-mmapRW:
-        li a2,PROT_WRITE|PROT_READ
-mmap:
-        addiu sp,sp,-sp_frame
-a4_sys=  4*NBPW  // temporary for syscall
-a5_sys=  5*NBPW  // temporary for syscall
-        sw a4,a4_sys(sp)
-        sw a5,a5_sys(sp)
-        li v0,__NR_mmap; syscall
-        bnez a3,mmap_bad
+        li a1,MFD_EXEC  // modern
+2:
+        bal 0f
+          move a0,ra
+        .asciz "upx"; .balign 4
+0:
+        li v0,__NR_memfd_create; syscall  // attempt recovery
+        beqz a3,9f  // success
+          move $r_mfd,v0  // return value
+        beqz a1,8f  // failure if (, 0) already tried
+          addiu a1,v0,-EINVAL  // MFD_EXEC appeared Linux 6.3 2023-04-23
+        beqz a1,2b  // try old (, 0) if failure was EINVAL
           nop
+8:
+no_memfd:  // so try /dev/shm
+
+O_RDWR= 2
+O_DIRECTORY= 0200000  // 0x010000
+O_TMPFILE= 020000000  // 0x400000
+        call 0f; nop; .asciz "/dev/shm"; .balign 4
+0:
+        li   a2,0700  // mode
+        li   a1,O_DIRECTORY | O_TMPFILE | O_RDWR
+        move a0,ra  // "/dev/shm"
+        li v0,__NR_open
+        syscall
+9:
+
+# alloca() for de-compressed stub
+        lw $r_szuf,sz_unc($r_FOLD)  # sz_unc of fold
+        move fp,sp
+        sw $r_szuf,F_LENU(sp)
+        li at,-2*NBPW
+        subu sp,$r_szuf; and sp,at
+
+        lw $r_ADRX,-NBPW($r_FOLD)  # O_BINFO
+        li at,~(is_ptinterp | unmap_all_pages)
+        and $r_ADRX,$r_ADRX,at
+# Decompress folded code
+        lb meth,b_method($r_FOLD)  # a4
+        sw $r_szuf,F_ADRU(fp)  # lzma uses for EOF
+        la ldst,   F_ADRU(fp)  # a3  &slot on stack
+        move dst,sp            # a2  dst for unfolding
+        lw lsrc,sz_cpr($r_FOLD)  # a1  (in aligned 1st b_info)
+        bal f_exp  # decompress it
+          addiu src,$r_FOLD,sz_b_info  # a0  folded code
+        sw $r_PMASK,0*NBPW(sp)  # forward the PAGE_MASK
+// detect big-endian; re-write get4unal if so
+        lbu at,0(sp)  # first byte of PAGE_MASK
+          lw v1,9*NBPW(sp)
+        beqz at,0f  # 0 ==> little endian
+          lw at,8*NBPW(sp)
+        sw v1,5*NBPW(sp)
+        sw at,4*NBPW(sp)
+0:
+
+# Write de-compressed stub
+        move a2,$r_szuf  # .sz_unc
+        move a1,sp
+        move a0,$r_mfd
+        li v0,__NR_write; syscall; bnez a3,HALT  // faliure
+          move sp,fp
+
+# Map de-compressed stub
+        addiu sp,-6*NBPW  # space for all 6 args to mmap()
+        sw zero,  5*NBPW(sp)  # last 2 args are in memory
+        sw $r_mfd,4*NBPW(sp)
+        li   a3,MAP_SHARED  # first 4 args are in registers, but kernel might store onto stack
+        li   a2,PROT_READ|PROT_EXEC  # FIXME: PROT_WRITE is DEBUG only
+        lw   a1,sz_unc($r_FOLD)
+        move a0,zero
+        li v0,__NR_mmap; syscall; bnez a3,HALT  // failure
+          addiu sp,6*NBPW
+        sw v0,F_ADRU(sp)
+        addiu ra,v0,2*NBPW
+
+        move a0,$r_mfd
+        li v0,__NR_close; syscall  // ignore failure
+
         jr ra
-          addiu sp,sp, sp_frame
-mmap_bad:
+          addu $r_ADRX,$r_elfa,$r_ADRX  # compressed data
+
+HALT:  // cannot write() or mmap() de-compressed stub
         break
 
-zfind:  // result in $r_auxv
+zfind:  # result in $r_auxv
         lw v1,(a0); addiu a0,a0,NBPW
         bnez v1,zfind
           move $r_auxv,a0
         jr ra
-          li t0,AT_PAGESZ  // prepare early
+          li t0,AT_PAGESZ  # prepare early
 
 main:
         bal zfind
-          move a0,sp
+          addiu a0,sp,NBPW  # avoid feint of 0==argc
         bal zfind
           move a0,$r_auxv
 
-// set $r_PMASK by finding actual page size in Elf32_auxv_t
+# set $r_PMASK by finding actual page size in Elf32_auxv_t
 1:
         lw  v1,a_type(a0)
           addiu a0,a0,sz_auxv
-        beq v1,t0,2f  // AT_PAGESZ
+        beq v1,t0,2f  # AT_PAGESZ
           lw v0,a_val - sz_auxv(a0)
-        bnez v1,1b  // AT_NULL
-          li v0,PAGE_SIZE
+        bnez v1,1b  # AT_NULL
+          li v0,1<<12
 2:
-        sub $r_PMASK,zero,v0
+          nop  # delay slot if AT_PAGESZ found
+        neg $r_PMASK,v0
         bal unfold
-          addiu $r_FOLD,ra,LrFLD - 0f  // &b_info for folded loader
+          addiu $r_FOLD,ra,LrFLD - 0f  # &b_info for folded loader
 0:
-        .asciz "/proc/self/exe"; .balign 4
         .long O_BINFO
 LrFLD:
-        // { b_info={sz_unc, sz_cpr, {4 char}}, folded_loader...}
+        # { b_info={sz_unc, sz_cpr, {4 char}}, folded_loader...}
 
 /*__XTHEENDX__*/
 

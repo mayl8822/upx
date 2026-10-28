@@ -3,8 +3,8 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2020 Laszlo Molnar
+;  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) Laszlo Molnar
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -27,9 +27,9 @@
 ;
 */
 
+#include "../../version.h"
 #define         UPX102  1
 #include "arch/i386/macros.S"
-
 
 // =============
 // ============= ENTRY POINT
@@ -40,14 +40,25 @@ section         PEISDLL1
                 jnz     reloc_end_jmp
 section         PEMAIN01
                 pusha
+section         PESOCREL
                 mov     esi, offset start_of_compressed       // relocated
+section         PESOCPIC
+                call    get_eip
+get_eip:
+                pop     eax
+                lea     esi, [eax + start_of_compressed - get_eip]
+section         PESOUNC0
                 lea     edi, [esi + start_of_uncompressed]
 section         PEICONS1
                 incw    [edi + icon_offset]
 section         PEICONS2
                 addw    [edi + icon_offset], offset icon_delta
 section         PETLSHAK
-                mov     dword ptr [edi + tls_address], offset tls_value
+                lea     eax, [edi + tls_address]
+                push    [eax]   // save the TLS index
+                mov     dword ptr [eax], offset tls_value // restore compressed data overwritten by the TLS index
+                push    eax
+
 section         PEMAIN02
                 push    edi
 section         PEMAIN03
@@ -65,6 +76,11 @@ section         PEMAIN03
 // =============
 section         PEMAIN10
                 pop     esi             // load vaddr
+
+section         PETLSHAK2               // restore the TLS index
+                pop     edi
+                pop     eax
+                mov     [edi], eax
 
 // =============
 // ============= CALLTRICK

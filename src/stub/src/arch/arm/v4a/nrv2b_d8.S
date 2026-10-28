@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,12 +29,12 @@
    <jreiser@users.sourceforge.net>
 */
 
-#define src  r0
-#define len  r1
-#define dst  r2
-#define tmp  r3
-#define bits r4
-#define off  r5
+src  .req r0
+len  .req r1
+dst  .req r2
+tmp  .req r3
+bits .req r4
+off  .req r5
 
 /* macros reduce "noise" when comparing this ARM code to corresponding THUMB code */
 #define PUSH stmdb sp!,
@@ -133,7 +133,12 @@ copy_n2b:  // copy 1+len bytes
         b top_n2b  // exit with -1==len
 
         .size ucl_nrv2b_decompress_8, .-ucl_nrv2b_decompress_8
+.unreq src
+.unreq len
+.unreq dst
+.unreq tmp
+.unreq bits
+.unreq off
 /*
 vi:ts=8:et:nowrap
  */
-

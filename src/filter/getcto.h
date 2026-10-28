@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,22 +25,18 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
+#pragma once
 
 /*************************************************************************
 //
 **************************************************************************/
 
-static int getcto(Filter *f, const unsigned char *buf, const int n=256)
-{
+static int getcto(Filter *f, const byte *buf, const int n = 256) {
     int ic = n;
 
-    if (f->preferred_ctos)
-    {
-        for (const int *pc = f->preferred_ctos; *pc >= 0; pc++)
-        {
-            if (*pc < n && buf[*pc] == 0)
-            {
+    if (f->preferred_ctos) {
+        for (const int *pc = f->preferred_ctos; *pc >= 0; pc++) {
+            if (*pc < n && buf[*pc] == 0) {
                 ic = *pc;
                 break;
             }
@@ -60,10 +56,10 @@ static int getcto(Filter *f, const unsigned char *buf, const int n=256)
                 break;
 
     if (ic >= n)
-        //throwCantPack("call trick problem");
+        // throwCantPack("call trick problem");
         return -1;
 
-    f->cto = (unsigned char) ic;
+    f->cto = (byte) ic;
     return ic;
 }
 

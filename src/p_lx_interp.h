@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,10 +29,7 @@
    <jreiser@users.sourceforge.net>
  */
 
-
-#ifndef __UPX_P_LX_INTERP_H  //{
-#define __UPX_P_LX_INTERP_H 1
-
+#pragma once
 
 /*************************************************************************
 // linux/interp386
@@ -44,21 +41,18 @@ class PackLinuxElf32x86interp : public PackLinuxElf32x86
 public:
     PackLinuxElf32x86interp(InputFile *f);
     virtual ~PackLinuxElf32x86interp();
-    virtual int getVersion() const { return 13; }
-    virtual int getFormat() const { return UPX_F_LINUX_ELFI_i386; }
-    virtual const char *getName() const { return "linux/elfi386"; }
-    virtual const char *getFullName(const options_t *) const { return "i386-linux.elf.interp"; }
+    virtual int getVersion() const override { return 13; }
+    virtual int getFormat() const override { return UPX_F_LINUX_ELFI_i386; }
+    virtual const char *getName() const override { return "linux/elfi386"; }
+    virtual const char *getFullName(const options_t *) const override { return "i386-linux.elf.interp"; }
 
-    virtual bool canPack();
-    virtual void unpack(OutputFile *fo);
+    virtual tribool canPack() override;
+    virtual void unpack(OutputFile *fo) override;
 
 protected:
-    virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    virtual int  pack2(OutputFile *, Filter &);  // append compressed data
-    virtual off_t pack3(OutputFile *, Filter &);  // build loader
+    virtual void pack1(OutputFile *, Filter &) override;  // generate executable header
+    virtual int  pack2(OutputFile *, Filter &) override;  // append compressed data
+    virtual off_t pack3(OutputFile *, Filter &) override;  // build loader
 };
-
-
-#endif /*} already included */
 
 /* vim:set ts=4 sw=4 et: */

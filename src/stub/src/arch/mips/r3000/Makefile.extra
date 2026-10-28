@@ -8,11 +8,11 @@ __dir_list  += ../../../../../.. ../../../../../../.. ../../../../../../../..
 __dir_search = $(firstword $(foreach v,$1,$(if $(wildcard $v/$2),$v)) $3)
 top_srcdir := $(call __dir_search,$(__dir_list),src/bele.h,NOT_FOUND)
 endif
-include $(wildcard $(top_srcdir)/Makevars.global ./Makevars.local)
+include $(wildcard $(top_srcdir)/Makevars-global.mk ./Makevars-local.mk)
 vpath %.c $(top_srcdir)/src/stub/src/c
 
 STUBS =
-include $(top_srcdir)/src/stub/src/c/Makevars.lzma
+include $(top_srcdir)/src/stub/src/c/Makevars-lzma.mk
 ifneq ($(UPX_LZMA_VERSION),)
 STUBS += lzma_d_cf.S lzma_d_cs.S
 endif
@@ -94,11 +94,11 @@ lzma_d_cs.% : PP_FLAGS = -DSMALL
 
 define __test_stub_compression
 	@md5sum $1
-	$(if $2,$(call tc,readelf) -S $2 | egrep 'LzmaDecode ')
+	$(if $2,$(call tc,readelf) -S $2 | grep 'LzmaDecode ')
 	@rm -f $1.tmp.*
 	@bzip2 -9  < $1 > $1.tmp.bz2
 	@gzip -9mn < $1 > $1.tmp.gz
-	$(if $(UPX_UCL_UCLPACK),@$(UPX_UCL_UCLPACK) --nrv2b --10 $1 $1.tmp.uclpack-nrv2b | egrep ' into ')
+	$(if $(UPX_UCL_UCLPACK),@$(UPX_UCL_UCLPACK) --nrv2b --10 $1 $1.tmp.uclpack-nrv2b | grep ' into ')
 	@ls -l $1.tmp.*
 endef
 

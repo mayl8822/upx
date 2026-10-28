@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -84,7 +84,7 @@ L100:
         lwz r0,   srr0(a0); mtctr r0  # entry address
                 /* Next 3 lines probably are not needed, but ... */
         lwz r0, reg_cr(a0); mtcr  r0  # condition code
-        lwz r0,reg_xer(a0); mtxer r0  # extended error reg (CArry, etc.)
+        lwz r0,reg_xer(a0); mtxer r0  # extended error reg (Carry, etc.)
         lwz r0, reg_lr(a0); mtlr  r0  # link register
 
         lmw 4,4*4+reg0(3)  # reg 4 thru 31

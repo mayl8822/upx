@@ -1,9 +1,9 @@
-/* work.cpp -- main driver
+/* work.cpp -- main work driver
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,20 +25,35 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
+// This file implements the central loop, and it uses class PackMaster to
+// dispatch. PackMaster by itself will instantiate a concrete subclass of
+// class PackerBase which then does the actual work; search for "HERE".
+// And see p_com.cpp for a simple executable format.
+//
+// Additionally this file also has the burden to deal with all those pesky
+// low-level file handling issues.
+
+#define WANT_WINDOWS_LEAN_H 1 // _get_osfhandle, GetFileTime, SetFileTime
+#include "util/system_headers.h"
+#if USE_UTIMENSAT
+#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#endif
 #include "conf.h"
 #include "file.h"
 #include "packmast.h"
-#include "packer.h"
 #include "ui.h"
+#include "util/membuffer.h"
 
-#if (ACC_OS_DOS32) && defined(__DJGPP__)
+#if USE_UTIMENSAT && defined(AT_FDCWD)
+#elif defined(_WIN32) || defined(__CYGWIN__)
+#define USE_SETFILETIME 1
+#elif (ACC_OS_DOS32) && defined(__DJGPP__)
 #define USE_FTIME 1
-#elif (ACC_OS_WIN32 && ACC_CC_MWERKS) && defined(__MSL__)
-#include <utime.h>
-#define USE_UTIME 1
 #elif ((ACC_OS_WIN32 || ACC_OS_WIN64) && (ACC_CC_INTELC || ACC_CC_MSC))
 #define USE__FUTIME 1
-#elif (HAVE_UTIME)
+#elif HAVE_UTIME
 #define USE_UTIME 1
 #endif
 
@@ -49,28 +64,170 @@
 #define SH_DENYWR (-1)
 #endif
 
+/*************************************************************************
+// file util
+**************************************************************************/
+
+namespace {
+
+struct XStat final {
+    struct stat st;
+#if USE_SETFILETIME
+    FILETIME ft_atime;
+    FILETIME ft_mtime;
+#elif USE_FTIME
+    struct ftime ft_ftime;
+#endif
+};
+
 // ignore errors in some cases and silence __attribute__((__warn_unused_result__))
 #define IGNORE_ERROR(var) ACC_UNUSED(var)
+
+enum OpenMode { RO_MUST_EXIST, WO_MUST_EXIST_TRUNCATE, WO_MUST_CREATE, WO_CREATE_OR_TRUNCATE };
+
+static constexpr int get_open_flags(OpenMode om) noexcept {
+    constexpr int wo_flags = O_WRONLY | O_BINARY;
+    if (om == WO_MUST_EXIST_TRUNCATE)
+        return wo_flags | O_TRUNC; // will cause an error if file does not exist
+    if (om == WO_MUST_CREATE)
+        return wo_flags | O_CREAT | O_EXCL; // will cause an error if file already exists
+    if (om == WO_CREATE_OR_TRUNCATE)
+        return wo_flags | O_CREAT | O_TRUNC; // create if not exists, otherwise truncate
+    // RO_MUST_EXIST
+    return O_RDONLY | O_BINARY; // will cause an error if file does not exist
+}
+
+// set file time of an open file
+static noinline void set_fd_timestamp(int fd, const XStat *xst) noexcept {
+#if USE_SETFILETIME
+    BOOL r = SetFileTime((HANDLE) _get_osfhandle(fd), nullptr, &xst->ft_atime, &xst->ft_mtime);
+    IGNORE_ERROR(r);
+#elif USE_FTIME
+    struct ftime ft_ftime = xst->ft_ftime; // djgpp2 libc bug/feature: not const, so use a copy
+    int r = setftime(fd, &ft_ftime);
+    IGNORE_ERROR(r);
+#elif USE__FUTIME
+    struct _utimbuf u = {};
+    u.actime = xst->st.st_atime;
+    u.modtime = xst->st.st_mtime;
+    int r = _futime(fd, &u);
+    IGNORE_ERROR(r);
+#endif
+    // maybe unused
+    UNUSED(fd);
+    UNUSED(xst);
+}
+
+static noinline void copy_file_contents(const char *iname, const char *oname, OpenMode om,
+                                        const XStat *oname_timestamp) may_throw {
+    InputFile fi;
+    fi.sopen(iname, get_open_flags(RO_MUST_EXIST), SH_DENYWR);
+    fi.seek(0, SEEK_SET);
+    int flags = get_open_flags(om);
+    int shmode = SH_DENYWR;
+    int omode = 0600; // affected by umask; ignored unless O_CREAT
+    OutputFile fo;
+    fo.sopen(oname, flags, shmode, omode);
+    fo.seek(0, SEEK_SET);
+    MemBuffer buf(256 * 1024 * 1024);
+    for (;;) {
+        size_t bytes = fi.read(buf, buf.getSize());
+        if (bytes == 0)
+            break;
+        fo.write(buf, bytes);
+    }
+    if (oname_timestamp != nullptr)
+        set_fd_timestamp(fo.getFd(), oname_timestamp);
+    fi.closex();
+    fo.closex();
+}
+
+static noinline void copy_file_attributes(const XStat *xst, const char *oname, bool preserve_mode,
+                                          bool preserve_ownership,
+                                          bool preserve_timestamp) noexcept {
+    const struct stat *const st = &xst->st;
+    // copy time stamp
+    if (preserve_timestamp) {
+#if USE_UTIMENSAT && defined(AT_FDCWD)
+        struct timespec times[2] = {};
+#if HAVE_STRUCT_STAT_ST_MTIMESPEC_TV_NSEC
+        // macOS
+        times[0] = st->st_atimespec;
+        times[1] = st->st_mtimespec;
+#else
+        // POSIX.1-2008
+        times[0] = st->st_atim;
+        times[1] = st->st_mtim;
+#endif
+        int r = utimensat(AT_FDCWD, oname, &times[0], 0);
+        IGNORE_ERROR(r);
+#elif USE_UTIME
+        struct utimbuf u = {};
+        u.actime = st->st_atime;
+        u.modtime = st->st_mtime;
+        int r = utime(oname, &u);
+        IGNORE_ERROR(r);
+#endif
+    }
+#if HAVE_CHOWN
+    // copy the group ownership
+    if (preserve_ownership) {
+        int r = chown(oname, -1, st->st_gid);
+        IGNORE_ERROR(r);
+    }
+#endif
+#if HAVE_CHMOD
+    // copy permissions
+    if (preserve_mode) {
+        int r = chmod(oname, st->st_mode);
+        IGNORE_ERROR(r);
+    }
+#endif
+#if HAVE_CHOWN
+    // copy the user ownership
+    if (preserve_ownership) {
+        int r = chown(oname, st->st_uid, -1);
+        IGNORE_ERROR(r);
+    }
+#endif
+    // maybe unused
+    UNUSED(xst);
+    UNUSED(st);
+    UNUSED(oname);
+    UNUSED(preserve_mode);
+    UNUSED(preserve_ownership);
+    UNUSED(preserve_timestamp);
+}
+
+} // namespace
 
 /*************************************************************************
 // process one file
 **************************************************************************/
 
-void do_one_file(const char *iname, char *oname) {
-    int r;
-    struct stat st;
-    memset(&st, 0, sizeof(st));
-#if (HAVE_LSTAT)
-    r = lstat(iname, &st);
+void do_one_file(const char *const iname, char *const oname) may_throw {
+    oname[0] = 0; // make empty
+
+    // check iname stat
+    XStat xst = {};
+    struct stat &st = xst.st;
+#if HAVE_LSTAT
+    int rr = lstat(iname, &st);
 #else
-    r = stat(iname, &st);
+    int rr = stat(iname, &st);
 #endif
-    if (r != 0) {
+    if (rr != 0) {
         if (errno == ENOENT)
             throw FileNotFoundException(iname, errno);
         else
             throwIOException(iname, errno);
     }
+#if HAVE_LSTAT
+    if (S_ISLNK(st.st_mode))
+        throwIOException("is a symlink -- skipped");
+#endif
+    if (S_ISDIR(st.st_mode))
+        throwIOException("is a directory -- skipped");
     if (!(S_ISREG(st.st_mode)))
         throwIOException("not a regular file -- skipped");
 #if defined(__unix__)
@@ -82,8 +239,13 @@ void do_one_file(const char *iname, char *oname) {
         throwIOException("empty file -- skipped");
     if (st.st_size < 512)
         throwIOException("file is too small -- skipped");
-    if (!mem_size_valid_bytes(st.st_size))
-        throwIOException("file is too large -- skipped");
+    // compression needs about 2 copies of the input in memory, but the
+    // non-compressing commands -l (list), -t (test) and -d (de-compress) need
+    // much less (roughly 9/8 of the input size), so allow larger files there
+    const unsigned rsize_max = mem_size_get_rsize_max(opt->cmd);
+    if ((upx_uintmax_t) st.st_size > rsize_max)
+        throwIOException2("file is too large -- skipped (%lld > %u)", (long long) st.st_size,
+                          rsize_max);
     if ((st.st_mode & S_IWUSR) == 0) {
         bool skip = true;
         if (opt->output_name)
@@ -96,143 +258,146 @@ void do_one_file(const char *iname, char *oname) {
             throwIOException("file is write protected -- skipped");
     }
 
+    // open input file
     InputFile fi;
-    fi.st = st;
-    fi.sopen(iname, O_RDONLY | O_BINARY, SH_DENYWR);
+    fi.sopen(iname, get_open_flags(RO_MUST_EXIST), SH_DENYWR);
 
-#if (USE_FTIME)
-    struct ftime fi_ftime;
-    memset(&fi_ftime, 0, sizeof(fi_ftime));
     if (opt->preserve_timestamp) {
-        if (getftime(fi.getFd(), &fi_ftime) != 0)
+#if USE_SETFILETIME
+        if (GetFileTime((HANDLE) _get_osfhandle(fi.getFd()), nullptr, &xst.ft_atime,
+                        &xst.ft_mtime) == 0)
             throwIOException("cannot determine file timestamp");
-    }
+#elif USE_FTIME
+        if (getftime(fi.getFd(), &xst.ft_ftime) != 0)
+            throwIOException("cannot determine file timestamp");
 #endif
+    }
 
     // open output file
+    // NOTE: only use "preserve_link" if you really need it, e.g. it can fail
+    //   with ETXTBSY and other unexpected errors; renaming files is much safer
     OutputFile fo;
+    bool preserve_link = opt->preserve_link;
+    bool copy_timestamp_only = false;
     if (opt->cmd == CMD_COMPRESS || opt->cmd == CMD_DECOMPRESS) {
         if (opt->to_stdout) {
+            preserve_link = false; // not needed
             if (!fo.openStdout(1, opt->force ? true : false))
                 throwIOException("data not written to a terminal; Use '-f' to force.");
         } else {
             char tname[ACC_FN_PATH_MAX + 1];
-            if (opt->output_name)
+            if (opt->output_name) {
                 strcpy(tname, opt->output_name);
-            else {
+                if ((opt->force_overwrite || opt->force >= 2) && !preserve_link)
+                    (void) FileBase::unlink_noexcept(tname); // IGNORE_ERROR
+            } else {
+                if (st.st_nlink < 2)
+                    preserve_link = false; // not needed
                 if (!maketempname(tname, sizeof(tname), iname, ".upx"))
                     throwIOException("could not create a temporary file name");
             }
-            if (opt->force >= 2) {
-#if (HAVE_CHMOD)
-                r = chmod(tname, 0777);
-                IGNORE_ERROR(r);
+            int flags = get_open_flags(WO_MUST_CREATE); // don't overwrite files by default
+            if (opt->output_name && preserve_link) {
+                flags = get_open_flags(WO_CREATE_OR_TRUNCATE);
+#if HAVE_LSTAT
+                struct stat ost = {};
+                int r = lstat(tname, &ost);
+                if (r == 0 && S_ISREG(ost.st_mode)) {
+                    preserve_link = ost.st_nlink >= 2;
+                } else if (r == 0 && S_ISLNK(ost.st_mode)) {
+                    // output_name is a symlink (valid or dangling)
+                    (void) FileBase::unlink_noexcept(tname); // IGNORE_ERROR
+                    preserve_link = false;                   // not needed
+                } else {
+                    preserve_link = false; // not needed
+                }
 #endif
-                r = unlink(tname);
-                IGNORE_ERROR(r);
+                if (preserve_link) {
+                    flags = get_open_flags(WO_MUST_EXIST_TRUNCATE);
+                    copy_timestamp_only = true;
+                }
+            } else if (opt->force_overwrite || opt->force) {
+                flags = get_open_flags(WO_CREATE_OR_TRUNCATE);
             }
-            int flags = O_CREAT | O_WRONLY | O_BINARY;
-            if (opt->force)
-                flags |= O_TRUNC;
-            else
-                flags |= O_EXCL;
             int shmode = SH_DENYWR;
-#if defined(__MINT__)
+#if (ACC_ARCH_M68K && ACC_OS_TOS && ACC_CC_GNUC) && defined(__MINT__)
+            // TODO later: check current mintlib if this hack is still needed
             flags |= O_TRUNC;
             shmode = O_DENYRW;
 #endif
             // cannot rely on open() because of umask
             // int omode = st.st_mode | 0600;
-            int omode = 0600;
-            if (!opt->preserve_mode)
-                omode = 0666;
+            int omode = opt->preserve_mode ? 0600 : 0666; // affected by umask; only for O_CREAT
             fo.sopen(tname, flags, shmode, omode);
             // open succeeded - now set oname[]
             strcpy(oname, tname);
         }
     }
 
-    // handle command
-    PackMaster pm(&fi, opt);
-    if (opt->cmd == CMD_COMPRESS)
-        pm.pack(&fo);
-    else if (opt->cmd == CMD_DECOMPRESS)
-        pm.unpack(&fo);
-    else if (opt->cmd == CMD_TEST)
-        pm.test();
-    else if (opt->cmd == CMD_LIST)
-        pm.list();
-    else if (opt->cmd == CMD_FILEINFO)
-        pm.fileInfo();
-    else
-        throwInternalError("invalid command");
-
-    // copy time stamp
-    if (opt->preserve_timestamp && oname[0] && fo.isOpen()) {
-#if (USE_FTIME)
-        r = setftime(fo.getFd(), &fi_ftime);
-        IGNORE_ERROR(r);
-#elif (USE__FUTIME)
-        struct _utimbuf u;
-        u.actime = st.st_atime;
-        u.modtime = st.st_mtime;
-        r = _futime(fo.getFd(), &u);
-        IGNORE_ERROR(r);
-#endif
+    // handle command - actual work starts HERE
+    {
+        PackMaster pm(&fi, opt);
+        if (opt->cmd == CMD_COMPRESS)
+            pm.pack(&fo);
+        else if (opt->cmd == CMD_DECOMPRESS)
+            pm.unpack(&fo);
+        else if (opt->cmd == CMD_TEST)
+            pm.test();
+        else if (opt->cmd == CMD_LIST)
+            pm.list();
+        else if (opt->cmd == CMD_FILEINFO)
+            pm.fileInfo();
+        else
+            throwInternalError("invalid command");
     }
 
-    // close files
-    fo.closex();
-    fi.closex();
+    // copy time stamp
+    if (oname[0] && opt->preserve_timestamp && fo.isOpen())
+        set_fd_timestamp(fo.getFd(), &xst);
 
-    // rename or delete files
+    // close files
+    fi.closex();
+    fo.closex();
+
+    // rename or copy files
     if (oname[0] && !opt->output_name) {
-        // FIXME: .exe or .cof etc.
-        if (!opt->backup) {
-#if (HAVE_CHMOD)
-            r = chmod(iname, 0777);
-            IGNORE_ERROR(r);
-#endif
-            File::unlink(iname);
-        } else {
-            // make backup
+        // both iname and oname do exist; rename oname to iname
+        if (opt->backup) {
             char bakname[ACC_FN_PATH_MAX + 1];
             if (!makebakname(bakname, sizeof(bakname), iname))
                 throwIOException("could not create a backup file name");
-            File::rename(iname, bakname);
+            if (preserve_link) {
+                copy_file_contents(iname, bakname, WO_MUST_CREATE, &xst);
+                copy_file_attributes(&xst, bakname, true, true, true);
+                const XStat *xstamp = opt->preserve_timestamp ? &xst : nullptr;
+                copy_file_contents(oname, iname, WO_MUST_EXIST_TRUNCATE, xstamp);
+                FileBase::unlink(oname);
+                copy_timestamp_only = true;
+            } else {
+                FileBase::rename(iname, bakname);
+                FileBase::rename(oname, iname);
+            }
+        } else if (preserve_link) {
+            const XStat *xstamp = opt->preserve_timestamp ? &xst : nullptr;
+            copy_file_contents(oname, iname, WO_MUST_EXIST_TRUNCATE, xstamp);
+            FileBase::unlink(oname);
+            copy_timestamp_only = true;
+        } else {
+            FileBase::unlink(iname);
+            FileBase::rename(oname, iname);
         }
-        File::rename(oname, iname);
+        // now iname is the new packed/unpacked file and oname does not exist any longer
     }
 
     // copy file attributes
     if (oname[0]) {
-        oname[0] = 0;
+        oname[0] = 0; // done with oname
         const char *name = opt->output_name ? opt->output_name : iname;
-        UNUSED(name);
-#if (USE_UTIME)
-        // copy time stamp
-        if (opt->preserve_timestamp) {
-            struct utimbuf u;
-            u.actime = st.st_atime;
-            u.modtime = st.st_mtime;
-            r = utime(name, &u);
-            IGNORE_ERROR(r);
-        }
-#endif
-#if (HAVE_CHMOD)
-        // copy permissions
-        if (opt->preserve_mode) {
-            r = chmod(name, st.st_mode);
-            IGNORE_ERROR(r);
-        }
-#endif
-#if (HAVE_CHOWN)
-        // copy the ownership
-        if (opt->preserve_ownership) {
-            r = chown(name, st.st_uid, st.st_gid);
-            IGNORE_ERROR(r);
-        }
-#endif
+        if (copy_timestamp_only)
+            copy_file_attributes(&xst, name, false, false, opt->preserve_timestamp);
+        else
+            copy_file_attributes(&xst, name, opt->preserve_mode, opt->preserve_ownership,
+                                 opt->preserve_timestamp);
     }
 
     UiPacker::uiConfirmUpdate();
@@ -242,28 +407,24 @@ void do_one_file(const char *iname, char *oname) {
 // process all files from the commandline
 **************************************************************************/
 
-static void unlink_ofile(char *oname) {
+static noinline void unlink_ofile(char *oname) noexcept {
     if (oname && oname[0]) {
-#if (HAVE_CHMOD)
-        int r;
-        r = chmod(oname, 0777);
-        IGNORE_ERROR(r);
-#endif
-        if (unlink(oname) == 0)
-            oname[0] = 0;
+        (void) FileBase::unlink_noexcept(oname); // IGNORE_ERROR
+        oname[0] = 0;                            // done with oname
     }
 }
 
-void do_files(int i, int argc, char *argv[]) {
+int do_files(int i, int argc, char *argv[]) may_throw {
+    upx_compiler_sanity_check();
     if (opt->verbose >= 1) {
-        show_head();
+        show_header();
         UiPacker::uiHeader();
     }
 
     for (; i < argc; i++) {
         infoHeader();
 
-        const char *iname = argv[i];
+        const char *const iname = argv[i];
         char oname[ACC_FN_PATH_MAX + 1];
         oname[0] = 0;
 
@@ -272,35 +433,42 @@ void do_files(int i, int argc, char *argv[]) {
         } catch (const Exception &e) {
             unlink_ofile(oname);
             if (opt->verbose >= 1 || (opt->verbose >= 0 && !e.isWarning()))
-                printErr(iname, &e);
-            set_exit_code(e.isWarning() ? EXIT_WARN : EXIT_ERROR);
+                printErr(iname, e);
+            main_set_exit_code(e.isWarning() ? EXIT_WARN : EXIT_ERROR);
+            // this is not fatal, continue processing more files
         } catch (const Error &e) {
             unlink_ofile(oname);
-            printErr(iname, &e);
-            e_exit(EXIT_ERROR);
+            printErr(iname, e);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         } catch (std::bad_alloc *e) {
             unlink_ofile(oname);
             printErr(iname, "out of memory");
             UNUSED(e);
             // delete e;
-            e_exit(EXIT_ERROR);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         } catch (const std::bad_alloc &) {
             unlink_ofile(oname);
             printErr(iname, "out of memory");
-            e_exit(EXIT_ERROR);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         } catch (std::exception *e) {
             unlink_ofile(oname);
             printUnhandledException(iname, e);
             // delete e;
-            e_exit(EXIT_ERROR);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         } catch (const std::exception &e) {
             unlink_ofile(oname);
             printUnhandledException(iname, &e);
-            e_exit(EXIT_ERROR);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         } catch (...) {
             unlink_ofile(oname);
-            printUnhandledException(iname, NULL);
-            e_exit(EXIT_ERROR);
+            printUnhandledException(iname, nullptr);
+            main_set_exit_code(EXIT_ERROR);
+            return -1; // fatal error
         }
     }
 
@@ -308,12 +476,15 @@ void do_files(int i, int argc, char *argv[]) {
         UiPacker::uiPackTotal();
     else if (opt->cmd == CMD_DECOMPRESS)
         UiPacker::uiUnpackTotal();
-    else if (opt->cmd == CMD_LIST)
-        UiPacker::uiListTotal();
     else if (opt->cmd == CMD_TEST)
         UiPacker::uiTestTotal();
+    else if (opt->cmd == CMD_LIST)
+        UiPacker::uiListTotal();
     else if (opt->cmd == CMD_FILEINFO)
         UiPacker::uiFileInfoTotal();
+    else
+        throwInternalError("invalid command");
+    return 0;
 }
 
 /* vim:set ts=4 sw=4 et: */

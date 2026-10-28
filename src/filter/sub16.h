@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,7 +25,7 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
-
+#pragma once
 
 /*************************************************************************
 //
@@ -33,80 +33,40 @@
 
 #include "sub.hh"
 
-#define SUB16(f, N)     SUB(f, N, unsigned short, get_le16, set_le16)
-#define ADD16(f, N)     ADD(f, N, unsigned short, get_le16, set_le16)
-#define SCAN16(f, N)    SCAN(f, N, unsigned short, get_le16, set_le16)
-
+#define SUB16(f, N)  SUB(f, N, unsigned short, get_le16, set_le16)
+#define ADD16(f, N)  ADD(f, N, unsigned short, get_le16, set_le16)
+#define SCAN16(f, N) SCAN(f, N, unsigned short, get_le16, set_le16)
 
 /*************************************************************************
 //
 **************************************************************************/
 
 // filter
-static int f_sub16_1(Filter *f)
-{
-    SUB16(f, 1)
-}
+static int f_sub16_1(Filter *f) { SUB16(f, 1) }
 
-static int f_sub16_2(Filter *f)
-{
-    SUB16(f, 2)
-}
+static int f_sub16_2(Filter *f) { SUB16(f, 2) }
 
-static int f_sub16_3(Filter *f)
-{
-    SUB16(f, 3)
-}
+static int f_sub16_3(Filter *f) { SUB16(f, 3) }
 
-static int f_sub16_4(Filter *f)
-{
-    SUB16(f, 4)
-}
-
+static int f_sub16_4(Filter *f) { SUB16(f, 4) }
 
 // unfilter
-static int u_sub16_1(Filter *f)
-{
-    ADD16(f, 1)
-}
+static int u_sub16_1(Filter *f) { ADD16(f, 1) }
 
-static int u_sub16_2(Filter *f)
-{
-    ADD16(f, 2)
-}
+static int u_sub16_2(Filter *f) { ADD16(f, 2) }
 
-static int u_sub16_3(Filter *f)
-{
-    ADD16(f, 3)
-}
+static int u_sub16_3(Filter *f) { ADD16(f, 3) }
 
-static int u_sub16_4(Filter *f)
-{
-    ADD16(f, 4)
-}
-
+static int u_sub16_4(Filter *f) { ADD16(f, 4) }
 
 // scan
-static int s_sub16_1(Filter *f)
-{
-    SCAN16(f, 1)
-}
+static int s_sub16_1(Filter *f) { SCAN16(f, 1) }
 
-static int s_sub16_2(Filter *f)
-{
-    SCAN16(f, 2)
-}
+static int s_sub16_2(Filter *f) { SCAN16(f, 2) }
 
-static int s_sub16_3(Filter *f)
-{
-    SCAN16(f, 3)
-}
+static int s_sub16_3(Filter *f) { SCAN16(f, 3) }
 
-static int s_sub16_4(Filter *f)
-{
-    SCAN16(f, 4)
-}
-
+static int s_sub16_4(Filter *f) { SCAN16(f, 4) }
 
 #undef SUB
 #undef ADD

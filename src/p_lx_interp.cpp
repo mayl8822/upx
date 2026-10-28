@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -50,9 +50,9 @@
 //
 **************************************************************************/
 
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/i386-linux.elf.interp-entry.h"
-static const
+static const CLANG_FORMAT_DUMMY_STATEMENT
 #include "stub/i386-linux.elf.interp-fold.h"
 
 PackLinuxElf32x86interp::PackLinuxElf32x86interp(InputFile *f) :
@@ -64,7 +64,7 @@ PackLinuxElf32x86interp::~PackLinuxElf32x86interp()
 {
 }
 
-bool PackLinuxElf32x86interp::canPack()
+tribool PackLinuxElf32x86interp::canPack()
 {
     if (opt->o_unix.make_ptinterp) {
         return true;
@@ -109,7 +109,8 @@ void PackLinuxElf32x86interp::pack1(OutputFile *fo, Filter &)
     h3.phdr[1].p_flags = Elf32_Phdr::PF_W | Elf32_Phdr::PF_R;
     h3.phdr[1].p_align = 1;
     h3.phdr[2].p_type = PT_INTERP;
-    h3.phdr[2].p_offset = (char *)&h3.phdr[2].p_vaddr - (char *)&h3;
+    // h3.phdr[2].p_offset = (char *)&h3.phdr[2].p_vaddr - (char *)&h3;
+    h3.phdr[2].p_offset = offsetof(cprElfHdr3, phdr[2].p_vaddr);
     memcpy(&h3.phdr[2].p_vaddr, "/upxrun", h3.phdr[2].p_filesz = 8);
     h3.phdr[2].p_align = 1;
 
@@ -147,41 +148,41 @@ off_t PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
     }
     elfout.phdr[0].p_paddr = elfout.phdr[0].p_vaddr = base - sz;
     if (opt->o_unix.make_ptinterp) {
-        initLoader(stub_i386_linux_elf_interp_entry, sizeof(stub_i386_linux_elf_interp_entry));
+        initLoader(0, stub_i386_linux_elf_interp_entry, sizeof(stub_i386_linux_elf_interp_entry));
         linker->addSection("FOLDEXEC", stub_i386_linux_elf_interp_fold, sizeof(stub_i386_linux_elf_interp_fold), 0);
 
-        addLoader("LXPTI000", NULL);
+        addLoader("LXPTI000", nullptr);
 
-        addLoader("LXPTI040", NULL);
-        ph.method = M_NRV2B_LE32; addLoader(getDecompressorSections(), NULL);
-        addLoader("LXPTI090", NULL);
+        addLoader("LXPTI040", nullptr);
+        ph.method = M_NRV2B_LE32; addLoader(getDecompressorSections(), nullptr);
+        addLoader("LXPTI090", nullptr);
 
-        addLoader("LXPTI041", NULL);
-        ph.method = M_NRV2D_LE32; addLoader(getDecompressorSections(), NULL);
-        addLoader("LXPTI090", NULL);
+        addLoader("LXPTI041", nullptr);
+        ph.method = M_NRV2D_LE32; addLoader(getDecompressorSections(), nullptr);
+        addLoader("LXPTI090", nullptr);
 
-        addLoader("LXPTI042", NULL);
-        ph.method = M_NRV2E_LE32; addLoader(getDecompressorSections(), NULL);
-        addLoader("LXPTI090", NULL);
+        addLoader("LXPTI042", nullptr);
+        ph.method = M_NRV2E_LE32; addLoader(getDecompressorSections(), nullptr);
+        addLoader("LXPTI090", nullptr);
 
-        //addLoader("LXPTI043", NULL);
-        //ph.method = M_CL1B_LE32;  addLoader(getDecompressorSections(), NULL);
-        //addLoader("LXPTI090", NULL);
+        //addLoader("LXPTI043", nullptr);
+        //ph.method = M_CL1B_LE32;  addLoader(getDecompressorSections(), nullptr);
+        //addLoader("LXPTI090", nullptr);
 
-        addLoader("LXPTI091", NULL);
+        addLoader("LXPTI091", nullptr);
 
-        addLoader("LXPTI140", NULL);
+        addLoader("LXPTI140", nullptr);
 
-        addLoader("LXUNF002,LXUNF008,LXUNF010", NULL);
+        addLoader("LXUNF002,LXUNF008,LXUNF010", nullptr);
         addFilter32(0x46);
-        addLoader("LXUNF042,LXUNF035", NULL);
+        addLoader("LXUNF042,LXUNF035", nullptr);
 
-        addLoader("LXUNF002,LXUNF008,LXUNF010", NULL);
+        addLoader("LXUNF002,LXUNF008,LXUNF010", nullptr);
         addFilter32(0x49);
-        addLoader("LXUNF042,LXUNF035", NULL);
+        addLoader("LXUNF042,LXUNF035", nullptr);
 
-        addLoader("LXPTI200", NULL);
-        addLoader("FOLDEXEC", NULL);
+        addLoader("LXPTI200", nullptr);
+        addLoader("FOLDEXEC", nullptr);
         upx_byte const *p = getLoader();
         lsize = getLoaderSize();
         updateLoader(fo);
@@ -205,7 +206,6 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
     Elf32_Ehdr *const ehdr = (Elf32_Ehdr *) u.buf;
     Elf32_Phdr const *phdr = (Elf32_Phdr *) (u.buf + sizeof(*ehdr));
 
-    unsigned szb_info = sizeof(b_info);
     {
         fi->seek(0, SEEK_SET);
         fi->readx(u.buf, MAX_INTERP_HDR);
@@ -223,21 +223,29 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
     if (file_size > (off_t)orig_file_size || blocksize > orig_file_size)
         throwCantUnpack("file header corrupted");
 
-    ibuf.alloc(blocksize + OVERHEAD);
+    ibuf.alloc(blocksize + OVERHEAD + (blocksize >> ELF_NRV_FUDGE));
     b_info bhdr; memset(&bhdr, 0, sizeof(bhdr));
     fi->readx(&bhdr, szb_info);
     ph.u_len = get_te32(&bhdr.sz_unc);
     ph.c_len = get_te32(&bhdr.sz_cpr);
     ph.filter_cto = bhdr.b_cto8;
+    // sz_unc/sz_cpr come straight from the packed file's b_info; the Ehdr+Phdrs
+    // decompress into the fixed-size u.buf[MAX_INTERP_HDR] on the stack, so the
+    // sibling ElfXX/Mach unpackers that size their output buffer to u_len don't
+    // overflow, but this one would. Bound u_len to the buffer.
+    if (ph.c_len == 0 || ph.u_len < sizeof(*ehdr) || ph.u_len > MAX_INTERP_HDR)
+        throwCantUnpack("b_info corrupted");
 
     // Uncompress Ehdr and Phdrs.
     fi->readx(ibuf, ph.c_len);
     decompress(ibuf, (upx_byte *)ehdr, false);
+    if ((ph.u_len - sizeof(*ehdr)) / sizeof(*phdr) < ehdr->e_phnum)
+        throwCantUnpack("bad compressed e_phnum");
 
-    unsigned total_in = 0;
-    unsigned total_out = 0;
-    unsigned c_adler = upx_adler32(NULL, 0);
-    unsigned u_adler = upx_adler32(NULL, 0);
+    total_in = 0;
+    total_out = 0;
+    unsigned c_adler = upx_adler32(nullptr, 0);
+    unsigned u_adler = upx_adler32(nullptr, 0);
     off_t ptload0hi=0, ptload1lo=0, ptload1sz=0;
 
     // decompress PT_LOAD
@@ -255,12 +263,12 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
             if (fo)
                 fo->seek(phdr->p_offset, SEEK_SET);
             if (Elf32_Phdr::PF_X & phdr->p_flags) {
-                unpackExtent(phdr->p_filesz, fo, total_in, total_out,
+                unpackExtent(phdr->p_filesz, fo,
                     c_adler, u_adler, first_PF_X, szb_info);
                 first_PF_X = false;
             }
             else {
-                unpackExtent(phdr->p_filesz, fo, total_in, total_out,
+                unpackExtent(phdr->p_filesz, fo,
                     c_adler, u_adler, false, szb_info);
             }
         }
@@ -269,13 +277,13 @@ void PackLinuxElf32x86interp::unpack(OutputFile *fo)
     if (0!=ptload1sz && ptload0hi < ptload1lo) {  // alignment hole?
         if (fo)
             fo->seek(ptload0hi, SEEK_SET);
-        unpackExtent(ptload1lo - ptload0hi, fo, total_in, total_out,
+        unpackExtent(ptload1lo - ptload0hi, fo,
             c_adler, u_adler, false, szb_info);
     }
     if (total_out != orig_file_size) {  // non-PT_LOAD stuff
         if (fo)
             fo->seek(0, SEEK_END);
-        unpackExtent(orig_file_size - total_out, fo, total_in, total_out,
+        unpackExtent(orig_file_size - total_out, fo,
             c_adler, u_adler, false, szb_info);
     }
 

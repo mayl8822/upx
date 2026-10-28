@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2020 Laszlo Molnar
-   Copyright (C) 2000-2020 John F. Reiser
+   Copyright (C) Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) Laszlo Molnar
+   Copyright (C) John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,111 +29,90 @@
    <jreiser@users.sourceforge.net>
  */
 
-
 #if (ACC_CC_MSC && (_MSC_VER >= 1000 && _MSC_VER < 1300))
-#  pragma warning(disable: 4702)        // W4: unreachable code
+#pragma warning(disable : 4702) // W4: unreachable code
 #endif
-
 
 /*************************************************************************
 // filter / scan
 **************************************************************************/
 
-#ifdef U  //{
-#define NOFILT 0  // no filter
-#define FNOMRU 1  // filter, but not using mru
-#define MRUFLT 2  // mru filter
+#ifdef U         //{
+#define NOFILT 0 // no filter
+#define FNOMRU 1 // filter, but not using mru
+#define MRUFLT 2 // mru filter
 
-static unsigned
-f80_call(Filter const *f)
-{
-    return (1+ (0x0f & f->id)) % 3;
-}
+static unsigned f80_call(const Filter *f) { return (1 + (0x0f & f->id)) % 3; }
 
-static unsigned
-f80_jmp1(Filter const *f)
-{
-    return ((1+ (0x0f & f->id)) / 3) % 3;
-}
+static unsigned f80_jmp1(const Filter *f) { return ((1 + (0x0f & f->id)) / 3) % 3; }
 
-static unsigned
-f80_jcc2(Filter const *f)
-{
-    return f80_jmp1(f);
-}
+static unsigned f80_jcc2(const Filter *f) { return f80_jmp1(f); }
 
-#define N_MRU 32    // does not have to be a power of 2
+#define N_MRU 32 // does not have to be a power of 2
 
 // Adaptively remember recent destinations.
-static void
-update_mru(
-    unsigned const jc,  // destination address
-    int const kh,  // mru[kh] is slot where found
-    unsigned mru[N_MRU],  // circular buffer of most recent destinations
-    int &hand,  // mru[hand] is most recent destination
-    int &tail   // mru[tail] is beyond oldest destination ("cold cache" startup)
-)
-{
+static void update_mru(const unsigned jc,   // destination address
+                       const int kh,        // mru[kh] is slot where found
+                       unsigned mru[N_MRU], // circular buffer of most recent destinations
+                       int &hand,           // mru[hand] is most recent destination
+                       int &tail // mru[tail] is beyond oldest destination ("cold cache" startup)
+) {
     if (0 > --hand) {
-        hand = N_MRU -1;
+        hand = N_MRU - 1;
     }
-    unsigned const t = mru[hand];  // entry which will be overwritten by jc
-    if (0!=t) { // have seen at least N_MRU destinations
+    const unsigned t = mru[hand]; // entry which will be overwritten by jc
+    if (0 != t) {                 // have seen at least N_MRU destinations
         mru[kh] = t;
-    }
-    else { // "cold cache": keep active region contiguous
+    } else { // "cold cache": keep active region contiguous
         if (0 > --tail) {
-            tail = N_MRU -1;
+            tail = N_MRU - 1;
         }
-        unsigned const t2 = mru[tail];
+        const unsigned t2 = mru[tail];
         mru[tail] = 0;
         mru[kh] = t2;
     }
     mru[hand] = jc;
 }
-#endif  //}
+#endif //}
 
-
-static int F(Filter *f)
-{
+static int F(Filter *f) {
 #ifdef U
     // filter
-    upx_byte *const b = f->buf;
+    byte *const b = f->buf;
 #else
     // scan
-    const upx_byte *b = f->buf;
+    const byte *b = f->buf;
 #endif
     const unsigned size = f->buf_len;
 
     unsigned ic, jc, kc;
     unsigned calls = 0, noncalls = 0, noncalls2 = 0;
     unsigned lastnoncall = size, lastcall = 0;
-    unsigned wtally[3]; memset(wtally, 0, sizeof(wtally));
+    unsigned wtally[3];
+    memset(wtally, 0, sizeof(wtally));
 
-#ifdef U  //{
-    unsigned const f_call = f80_call(f);
-    unsigned const f_jmp1 = f80_jmp1(f);
-    unsigned const f_jcc2 = f80_jcc2(f);
+#ifdef U //{
+    const unsigned f_call = f80_call(f);
+    const unsigned f_jmp1 = f80_jmp1(f);
+    const unsigned f_jcc2 = f80_jcc2(f);
 
     int hand = 0, tail = 0;
     unsigned mru[N_MRU];
     memset(&mru[0], 0, sizeof(mru));
-    assert(N_MRU<=256);
-    f->n_mru = (MRUFLT==f_call || MRUFLT==f_jmp1 || MRUFLT==f_jcc2) ?
-        N_MRU : 0;
-#endif  //}
+    assert(N_MRU <= 256);
+    f->n_mru = (MRUFLT == f_call || MRUFLT == f_jmp1 || MRUFLT == f_jcc2) ? N_MRU : 0;
+#endif //}
 
     // FIXME: We must fit into 8 MiB because we steal one bit.
     // find a 16 MiB large empty address space
     {
         int which;
         unsigned char buf[256];
-        memset(buf,0,256);
+        memset(buf, 0, 256);
 
         for (ic = 0; ic < size - 5; ic++)
-            if (CONDF(which,b,ic,lastcall) && get_le32(b+ic+1)+ic+1 >= size)
-            {
-                buf[b[ic+1]] |= 1;
+            if (CONDF(which, b, ic, lastcall) && get_le32(b + ic + 1) + ic + 1 >= size) {
+                buf[b[ic + 1]] |= 1;
             }
         UNUSED(which);
 
@@ -142,37 +121,33 @@ static int F(Filter *f)
     }
     const unsigned char cto8 = f->cto;
 #ifdef U
-    const unsigned cto = (unsigned)f->cto << 24;
+    const unsigned cto = (unsigned) f->cto << 24;
 #endif
 
-    for (ic = 0; ic < size - 5; ic++)
-    {
+    for (ic = 0; ic < size - 5; ic++) {
         int which;
         int f_on = 0;
-        if (!CONDF(which,b,ic,lastcall))
+        if (!CONDF(which, b, ic, lastcall))
             continue;
         ++wtally[which];
-        jc = get_le32(b+ic+1)+ic+1;
+        jc = get_le32(b + ic + 1) + ic + 1;
         // try to detect 'real' calls only
-        if (jc < size)
-        {
+        if (jc < size) {
 #ifdef U
-            if (2==which && NOFILT!=f_jcc2) { // 6-byte Jcc <disp32>
+            if (2 == which && NOFILT != f_jcc2) { // 6-byte Jcc <disp32>
                 // Prefix 0x0f is constant, but opcode condition 0x80..0x8f
                 // varies.  Because we store the destination (or its mru index)
                 // in be32 big endian format, the low-addressed bytes
                 // will tend to be constant.  Swap prefix and opcode
                 // so that constants are together for better compression.
-                unsigned char const t =
-                b[ic-1];
-                b[ic-1] = b[ic];
-                          b[ic] = t;
+                const unsigned char t = b[ic - 1];
+                b[ic - 1] = b[ic];
+                b[ic] = t;
             }
-    // FIXME [?]: Extend to 8 bytes if "ADD ESP, byte 4*n" follows CALL.
-    //   This will require two related cto's (consecutive, or otherwise).
-            if ((0==which && MRUFLT==f_call)
-            ||  (1==which && MRUFLT==f_jmp1)
-            ||  (2==which && MRUFLT==f_jcc2) ) {
+            // FIXME [?]: Extend to 8 bytes if "ADD ESP, byte 4*n" follows CALL.
+            //   This will require two related cto's (consecutive, or otherwise).
+            if ((0 == which && MRUFLT == f_call) || (1 == which && MRUFLT == f_jmp1) ||
+                (2 == which && MRUFLT == f_jcc2)) {
                 f_on = 1;
                 // Recode the destination: narrower mru indices
                 // should compress better than wider addresses.
@@ -184,62 +159,55 @@ static int F(Filter *f)
                         kh -= N_MRU;
                     }
                     if (mru[kh] == jc) { // destination was seen recently
-                        set_be32(b+ic+1,((k<<1)|0)+cto);
+                        set_be32(b + ic + 1, ((k << 1) | 0) + cto);
                         update_mru(jc, kh, mru, hand, tail);
                         break;
                     }
                 }
                 if (k == N_MRU) { // loop failed; jc is not in mru[]
-                    set_be32(b+ic+1,((jc<<1)|1)+cto);
+                    set_be32(b + ic + 1, ((jc << 1) | 1) + cto);
                     // Adaptively remember recent destinations.
                     if (0 > --hand) {
-                        hand = N_MRU -1;
+                        hand = N_MRU - 1;
                     }
                     mru[hand] = jc;
                 }
-            } else
-            if ((0==which && NOFILT!=f_call)
-            ||  (1==which && NOFILT!=f_jmp1)
-            ||  (2==which && NOFILT!=f_jcc2) ) {
+            } else if ((0 == which && NOFILT != f_call) || (1 == which && NOFILT != f_jmp1) ||
+                       (2 == which && NOFILT != f_jcc2)) {
                 f_on = 1;
-                set_be32(b+ic+1, jc+cto);
+                set_be32(b + ic + 1, jc + cto);
             }
 #endif
             if (f_on) {
-                    if (ic - lastnoncall < 5)
-                    {
-                        // check the last 4 bytes before this call
-                        for (kc = 4; kc; kc--)
-                            if (CONDF(which,b,ic-kc,lastcall) && b[ic-kc+1] == cto8)
-                                break;
-                        if (kc)
-                        {
-        #ifdef U
-                            // restore original
-                            if (2==which) {
-                                // Unswap prefix and opcode for 6-byte Jcc <disp32>
-                                unsigned char const t =
-                                b[ic-1];
-                                b[ic-1] = b[ic];
-                                          b[ic] = t;
-                            }
-                            set_le32(b+ic+1,jc-ic-1);
-        #endif
-                            if (b[ic+1] == cto8)
-                                return 1;           // fail - buffer not restored
-                            lastnoncall = ic;
-                            noncalls2++;
-                            continue;
+                if (ic - lastnoncall < 5) {
+                    // check the last 4 bytes before this call
+                    for (kc = 4; kc; kc--)
+                        if (CONDF(which, b, ic - kc, lastcall) && b[ic - kc + 1] == cto8)
+                            break;
+                    if (kc) {
+#ifdef U
+                        // restore original
+                        if (2 == which) {
+                            // Unswap prefix and opcode for 6-byte Jcc <disp32>
+                            const unsigned char t = b[ic - 1];
+                            b[ic - 1] = b[ic];
+                            b[ic] = t;
                         }
+                        set_le32(b + ic + 1, jc - ic - 1);
+#endif
+                        if (b[ic + 1] == cto8)
+                            return 1; // fail - buffer not restored
+                        lastnoncall = ic;
+                        noncalls2++;
+                        continue;
                     }
-                    calls++;
-                    ic += 4;
-                    lastcall = ic+1;
+                }
+                calls++;
+                ic += 4;
+                lastcall = ic + 1;
             }
-        }
-        else
-        {
-            assert(b[ic+1] != cto8);        // this should not happen
+        } else {
+            assert(b[ic + 1] != cto8); // this should not happen
             lastnoncall = ic;
             noncalls++;
         }
@@ -254,85 +222,76 @@ static int F(Filter *f)
         calls,noncalls,noncalls2,size,cto8);
     printf("CALL/JMP/JCC  %d  %d  %d\n",wtally[0],wtally[1],wtally[2]);
 #endif
+    UNUSED(noncalls2);
     return 0;
 }
-
 
 /*************************************************************************
 // unfilter
 **************************************************************************/
 
 #ifdef U
-static int U(Filter *f)
-{
+static int U(Filter *f) {
     unsigned ic, jc;
 
-    upx_byte *const b = f->buf;
+    byte *const b = f->buf;
     const unsigned size5 = f->buf_len - 5;
-    const unsigned cto = (unsigned)f->cto << 24;
+    const unsigned cto = (unsigned) f->cto << 24;
     unsigned lastcall = 0;
     int hand = 0, tail = 0;
-    unsigned const f_call = f80_call(f);
-    unsigned const f_jmp1 = f80_jmp1(f);
-    unsigned const f_jcc2 = f80_jcc2(f);
+    const unsigned f_call = f80_call(f);
+    const unsigned f_jmp1 = f80_jmp1(f);
+    const unsigned f_jcc2 = f80_jcc2(f);
 
     unsigned mru[N_MRU];
     memset(&mru[0], 0, sizeof(mru));
 
     for (ic = 0; ic < size5; ic++) {
         int which;
-        if (CONDU(which,b,ic,lastcall))
-        {
+        if (CONDU(which, b, ic, lastcall)) {
             unsigned f_on = 0;
-            jc = get_be32(b+ic+1) - cto;
-            if (b[ic+1] == f->cto)
-            {
-                if ((0==which && MRUFLT==f_call)
-                ||  (1==which && MRUFLT==f_jmp1)
-                ||  (2==which && MRUFLT==f_jcc2) ) {
+            jc = get_be32(b + ic + 1) - cto;
+            if (b[ic + 1] == f->cto) {
+                if ((0 == which && MRUFLT == f_call) || (1 == which && MRUFLT == f_jmp1) ||
+                    (2 == which && MRUFLT == f_jcc2)) {
                     f_on = 1;
-                        if (1&jc) { // 1st time at this destination
-                            jc >>= 1;
-                            if (0 > --hand) {
-                                hand = N_MRU -1;
-                            }
-                            mru[hand] = jc;
+                    if (1 & jc) { // 1st time at this destination
+                        jc >>= 1;
+                        if (0 > --hand) {
+                            hand = N_MRU - 1;
                         }
-                        else { // not 1st time at this destination
-                            jc >>= 1;
-                            if (N_MRU <= jc) {
-                                throwCompressedDataViolation();
-                            }
-                            int kh = jc + hand;
-                            if (N_MRU <= kh) {
-                                kh -= N_MRU;
-                            }
-                            jc = mru[kh];
-                            update_mru(jc, kh, mru, hand, tail);
+                        mru[hand] = jc;
+                    } else { // not 1st time at this destination
+                        jc >>= 1;
+                        if (N_MRU <= jc) {
+                            throwCompressedDataViolation();
                         }
-                    set_le32(b+ic+1,jc-ic-1);
-                } else
-                if ((0==which && NOFILT!=f_call)
-                ||  (1==which && NOFILT!=f_jmp1)
-                ||  (2==which && NOFILT!=f_jcc2) ) {
+                        int kh = jc + hand;
+                        if (N_MRU <= kh) {
+                            kh -= N_MRU;
+                        }
+                        jc = mru[kh];
+                        update_mru(jc, kh, mru, hand, tail);
+                    }
+                    set_le32(b + ic + 1, jc - ic - 1);
+                } else if ((0 == which && NOFILT != f_call) || (1 == which && NOFILT != f_jmp1) ||
+                           (2 == which && NOFILT != f_jcc2)) {
                     f_on = 1;
-                    set_le32(b+ic+1,jc-ic-1);
+                    set_le32(b + ic + 1, jc - ic - 1);
                 }
-                if (2==which && NOFILT!=f_jcc2) {
+                if (2 == which && NOFILT != f_jcc2) {
                     // Unswap prefix and opcode for 6-byte Jcc <disp32>
-                    unsigned char const t =
-                    b[ic-1];
-                    b[ic-1] = b[ic];
-                            b[ic] = t;
+                    const unsigned char t = b[ic - 1];
+                    b[ic - 1] = b[ic];
+                    b[ic] = t;
                 }
 
                 if (f_on) {
                     f->calls++;
                     ic += 4;
-                    f->lastcall = lastcall = ic+1;
+                    f->lastcall = lastcall = ic + 1;
                 }
-            }
-            else
+            } else
                 f->noncalls++;
         }
     }

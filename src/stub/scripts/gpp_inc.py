@@ -1,11 +1,11 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 ## vim:set ts=4 sw=4 et: -*- coding: utf-8 -*-
 #
 #  gpp_inc.py -- Generic PreProcessor: include
 #
 #  This file is part of the UPX executable compressor.
 #
-#  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
+#  Copyright (C) Markus Franz Xaver Johannes Oberhumer
 #  All Rights Reserved.
 #
 #  UPX and the UCL library are free software; you can redistribute them
@@ -63,7 +63,7 @@ def not_found(state, l, inc, fatal=None):
     if fatal is None:
         fatal = opts.fatal
     if fatal:
-        raise Exception, "%s:%d: include file %s not found" % (state[0], state[2], inc)
+        raise Exception("%s:%d: include file %s not found" % (state[0], state[2], inc))
     return l
 
 
@@ -78,12 +78,12 @@ def parse_comment(state, l, comment):
         if   f == "ignore=0": cf["fatal"] = 1
         elif f == "ignore=1": cf["fatal"] = 0
         else:
-            raise Exception, "%s:%d: bad flags %s %s" % (state[0], state[2], f, str(flags))
+            raise Exception("%s:%d: bad flags %s %s" % (state[0], state[2], f, str(flags)))
     return cf
 
 
 def handle_inc_c(state, l, ofp):
-    m = re.search(r"^\s*\#\s*include\s+([\"\<])(.+?)([\"\>])(.*)$", l)
+    m = re.search(r"^\s*\#\s*include\s+([\"\<])(.+?)([\"\>])(.*)$", l.decode())
     if not m:
         return l
     q1, inc, q2, comment = m.groups()
@@ -93,7 +93,7 @@ def handle_inc_c(state, l, ofp):
     elif q1 == '"' and q2 == '"':
         dirs = [state[1]] + opts.includes
     else:
-        raise Exception, "syntax error: include line " + l
+        raise Exception("syntax error: include line " + l.decode())
     for dir in dirs:
         fn = os.path.join(dir, inc)
         if os.path.isfile(fn):
@@ -114,7 +114,7 @@ def handle_inc_nasm(state, l, ofp):
     elif q1 == '"' and q2 == '"':
         pass
     else:
-        raise Exception, "syntax error: include line " + l
+        raise Exception("syntax error: include line " + l)
     # info: nasm simply does concat the includes
     for prefix in opts.includes + [""]:
         fn = prefix + inc
@@ -130,13 +130,13 @@ def handle_file(ifn, ofp, parent_state=None):
     ifp = open(ifn, "rb")
     for l in ifp.readlines():
         state[2] += 1       # line counter
-        l = l.rstrip("\n")
+        l = l.rstrip("\n".encode())
         if opts.mode == "c":
             l = handle_inc_c(state, l, ofp)
         elif opts.mode == "nasm":
             l = handle_inc_nasm(state, l, ofp)
         if l is not None:
-            ofp.write(l + "\n")
+            ofp.write(l + "\n".encode())
 
 
 def main(argv):
@@ -179,12 +179,12 @@ def main(argv):
             os.unlink(fn)
         if files_mmd:
             fp = open(fn, "wb")
-            fp.write("%s : \\\n" % opts.target_mmd)
+            fp.write(("%s : \\\n" % opts.target_mmd).encode())
             for i, f in enumerate(files_mmd):
                 if i < len(files_mmd) - 1:
-                    fp.write("  %s \\\n" % f)
+                    fp.write(("  %s \\\n" % f).encode())
                 else:
-                    fp.write("  %s\n" % f)
+                    fp.write(("  %s\n" % f).encode())
             fp.close()
 
 

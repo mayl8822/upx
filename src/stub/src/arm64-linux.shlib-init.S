@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2020 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2020 Laszlo Molnar
-*  Copyright (C) 2000-2020 John F. Reiser
+*  Copyright (C) Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) Laszlo Molnar
+*  Copyright (C) John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -67,43 +67,35 @@ __NR_mprotect = 0xe2  // 226
 
 __ARM_NR_cacheflush =  (1<<31)  // FIXME
 
-#define arg1 x0
-#define arg2 x1
-#  define arg2w w1
-#define arg3 x2
-#define arg4 x3
-#define arg5 x4
-#define arg6 x5
+arg1 .req x0
+arg2 .req x1
+arg2w .req w1
+arg3 .req x2
+arg4 .req x3
+arg5 .req x4
+arg6 .req x5
 
-#define edi w0
-#define esi w1
-#define edx w2
-#define tmp w3
-#define eax w4
-#define ecx w5
+edi .req w0
+esi .req w1
+//edx .req w2  unused
+// Somehow arm64-linux-gcc-4.9.2 does not like '.req' or '#define' of w3 or x3.
+// So a text editor was used: 1,$s/tmpw/w3/g
+//#define tmpw w3
+//#define tmpx x3
+eax .req w4
+ecx .req w5
 
-#define rdi x0
-#define rsi x1
-#define rdx x2
+rdi .req x0
+rsi .req x1
+rdx .req x2
 
-#define rax x4
-#define rcx x5
+rax .req x4
+rcx .req x5
 
-#define lr  x30
-
-#define src  x0
-#define len  w1
-#define dst  x2
-#define dstw w2
-#define tmp  w3
-#define tmpx x3
-#define bits w4
-#define off  w5
-
-#define tmp1w w3
-#define tmp1x x3
-#define tmp2w w6
-#define tmp2x x6
+tmp1w .req w3
+tmp1x .req x3
+tmp2w .req w6
+tmp2x .req x6
 
 N_SLOT= 0
 sp_frame = 24 * NBPW
@@ -148,6 +140,8 @@ f_decompress:
         // empty
   section NRV_TAIL
         // empty
+
+#define NO_METHOD_CHECK 1
 
   section NRV2E
 #include "arch/arm64/v8/nrv2e_d32.S"
@@ -220,7 +214,7 @@ main:
 #define lodslu lodsl
 
         lodsl; and tmp2w,eax,#1  // 1 iff ET_DYN --android-shlib
-               bic tmp,  eax,tmp2w  // offset(b_info)
+               bic w3,  eax,tmp2w  // offset(b_info)
                mov rcx,rsi
         lodsl; sub rcx,rcx,rax; //str ecx,[sp,#o_reloc]
         lodsl; add rax,rax,tmp2x,lsl 12  // +asl_delta
@@ -228,7 +222,7 @@ main:
   slot o_hatch  // 6
         lodsl; add rax,rax,rcx; str rax,[sp,#o_hatch]  // reloc &hatch   for step 10
         lodsl; add rdi,rax,rcx  // destination for decompress
-               add rsi,tmpx,rcx  // &b_info  src for f_exp
+               add rsi,x3,rcx  // &b_info  src for f_exp
 
   slot p_unmap,2  // 7
 
@@ -249,29 +243,7 @@ main:
         sub eax,eax,ecx  // restore dstlen
 
         bl L610
-f_unfilter:  // (char *ptr, uint len, uint cto, uint fid)
-        ptr  .req x0
-        fid  .req w3
-
-#ifndef FILTER_ID  /*{*/
-#define FILTER_ID 0x52  /* little-endian */
-#endif  /*}*/
-        and fid,fid,#0xff
-        cmp fid,#FILTER_ID  // last use of fid
-        bne unfret
-        lsr x1,x1,#2  // word count
-        cbz x1,unfret
-top_unf:
-        sub x1,x1,#1
-        ldr w2,[ptr,x1,lsl #2]
-        ubfx w3,w2,#26,#5
-        cmp w3,#5; bne tst_unf  // not unconditional branch
-        sub w3,w2,w1  // word displ
-        bfi w2,w3,#0,#26  // change displacement
-        str w2,[ptr,x1,lsl #2]
-tst_unf:
-        cbnz x1,top_unf
-unfret:
+#include "arch/arm64/v8/bxx.S"
         ret
 
 L610:
@@ -290,15 +262,15 @@ L610:
         lodslu
   slot o_uncpr,2  // 17
         stp rdx,rax,[sp,#o_uncpr]  // &decompress, {method,filter,cto,junk}
-        add tmpx,sp,#1* NBPW + p_unflt  // &dstlen
+        add x3,sp,#1* NBPW + p_unflt  // &dstlen
   slot p_uncpr,4  // 19
         stp rsi,rcx, [sp,#0*NBPW + p_uncpr]  // src, srclen
-        stp rdi,tmpx,[sp,#2*NBPW + p_uncpr]  // dst, &dstlen  arglist ready for decompress  step 6
+        stp rdi,x3,[sp,#2*NBPW + p_uncpr]  // dst, &dstlen  arglist ready for decompress  step 6
 
         add rcx,rcx,#3  // allow  suffix alignment
-        ldr tmp,[sp,#o_wfrag]; add rdx,tmpx,rcx,lsr #2  // w_srclen + w_frag
-        ldr tmpx,[sp,#o_uncpr]; bl wlen_subr
-        ldr tmpx,[sp,#o_unflt]; bl wlen_subr
+        ldr w3,[sp,#o_wfrag]; add rdx,x3,rcx,lsr #2  // w_srclen + w_frag
+        ldr x3,[sp,#o_uncpr]; bl wlen_subr
+        ldr x3,[sp,#o_unflt]; bl wlen_subr
 
         bl L220
 supervise:
@@ -357,7 +329,7 @@ L620:  // Implant escape hatch at end of .text
 
 movsl_subr:
         ldr ecx,[rsi,#-4]  // 'bl <over>' instruction word
-        bic ecx,ecx,#0xff<<24  // displacment field
+        bic ecx,ecx,#0xff<<24  // displacement field
 movsl:  // rdi= 4-byte aligned dst; rsi= 4-byte aligned src; ecx= word count
         tbz ecx,#0,5f  // goto 5f if ecx is even
         ldr w3,[rsi],#4
@@ -374,7 +346,7 @@ movsl:  // rdi= 4-byte aligned dst; rsi= 4-byte aligned src; ecx= word count
 L220:
   slot f_super  // 23
         str lr,[sp,#f_super]
-        mov tmpx,lr; bl wlen_subr  // wlen_supervise
+        mov x3,lr; bl wlen_subr  // wlen_supervise
         lsl arg2,rdx,#2  // convert to bytes
 
         // Allocate pages to hold temporary copy.
@@ -419,9 +391,9 @@ L220:
         br  lr  // goto copied supervisor
 
 wlen_subr:  // rdx+= nwords of inline subr at *tmp
-        ldr tmp,[tmpx,#-4]  // 'bl <over>' instruction word
-        bic tmp,tmp,#0xff<<24  // displacment field
-        add rdx,rdx,tmpx
+        ldr w3,[x3,#-4]  // 'bl <over>' instruction word
+        bic w3,w3,#0xff<<24  // displacement field
+        add rdx,rdx,x3
         ret
 
 /*__XTHEENDX__*/
